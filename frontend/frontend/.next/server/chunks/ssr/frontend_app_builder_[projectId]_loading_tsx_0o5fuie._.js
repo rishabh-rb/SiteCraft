@@ -1,0 +1,3 @@
+module.exports=[29600,a=>{"use strict";var b=a.i(7997);a.s(["default",0,function(){return(0,b.jsx)("main",{className:"flex min-h-screen items-center justify-center bg-ink text-white",children:(0,b.jsx)("div",{className:"rounded-lg border border-white/12 bg-white/8 px-5 py-4 text-sm",children:"Loading builder..."})})}])},60906,function(a){a.n(a.i(29600))}];
+
+//# sourceMappingURL=frontend_app_builder_%5BprojectId%5D_loading_tsx_0o5fuie._.js.map

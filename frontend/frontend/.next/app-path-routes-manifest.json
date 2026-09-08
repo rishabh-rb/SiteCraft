@@ -1,0 +1,12 @@
+{
+  "/(auth)/login/page": "/login",
+  "/(auth)/register/page": "/register",
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/auth/[...nextauth]/route": "/api/auth/[...nextauth]",
+  "/builder/[projectId]/page": "/builder/[projectId]",
+  "/dashboard/page": "/dashboard",
+  "/dashboard/projects/page": "/dashboard/projects",
+  "/dashboard/settings/page": "/dashboard/settings",
+  "/page": "/"
+}
