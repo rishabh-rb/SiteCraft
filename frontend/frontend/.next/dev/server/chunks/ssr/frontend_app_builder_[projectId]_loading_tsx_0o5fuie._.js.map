@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///Users/rishabhbarnwal/Downloads/sitecraft-ai/frontend/app/builder/[projectId]/loading.tsx"],"sourcesContent":["export default function BuilderLoading() {\n  return (\n    <main className=\"flex min-h-screen items-center justify-center bg-ink text-white\">\n      <div className=\"rounded-lg border border-white/12 bg-white/8 px-5 py-4 text-sm\">Loading builder...</div>\n    </main>\n  );\n}\n"],"names":["BuilderLoading","className"],"mappings":";;;;;;AAAe,SAASA;IACtB,qBACE,8OAAC;QAAKC,WAAU;kBACd,cAAA,8OAAC;YAAIA,WAAU;sBAAiE;;;;;;;;;;;AAGtF"}}]
-}
