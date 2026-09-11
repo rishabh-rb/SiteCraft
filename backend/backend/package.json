@@ -1,0 +1,27 @@
+{
+  "name": "@sitecraft/backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/*.test.ts",
+    "prisma:validate": "DATABASE_URL=${DATABASE_URL:-postgresql://sitecraft:sitecraft@localhost:5432/sitecraft} prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@sitecraft/ml": "*",
+    "@prisma/client": "^6.2.1",
+    "dotenv": "^16.4.7",
+    "jszip": "^3.10.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
