@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 46, "column": 0}, "map": {"version":3,"sources":["file:///Users/rishabhbarnwal/Downloads/sitecraft-ai/frontend/components/providers.tsx"],"sourcesContent":["\"use client\";\n\nimport { SessionProvider } from \"next-auth/react\";\n\nexport function Providers({ children }: { children: React.ReactNode }) {\n  return <SessionProvider>{children}</SessionProvider>;\n}\n"],"names":["Providers","children"],"mappings":";;;;;AAEA;AAFA;;;AAIO,SAASA,UAAU,EAAEC,QAAQ,EAAiC;IACnE,qBAAO,8OAAC,iKAAe;kBAAEA;;;;;;AAC3B"}}]
-}
