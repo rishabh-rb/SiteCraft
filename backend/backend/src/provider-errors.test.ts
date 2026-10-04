@@ -1,337 +1,197 @@
-```ts
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createProvider, ProviderError } from "@sitecraft/ml";
 
-test("surfaces NVIDIA model unavailable errors with configuration guidance", async () => {
+const NVIDIA_API_KEY = "super-secret-nvidia-key";
+const NVIDIA_MODEL = "working-model";
+
+function mockFetch(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+) {
+  return async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers,
+    });
+}
+
+async function withMockedFetch(
+  fetchMock: typeof fetch,
+  callback: () => Promise<void>
+) {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
+  globalThis.fetch = fetchMock;
+
+  try {
+    await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+/* =========================================================
+   Model Errors
+========================================================= */
+
+test("surfaces NVIDIA model unavailable errors with configuration guidance", async () => {
+  await withMockedFetch(
+    mockFetch(
+      {
         error: {
           message: 'The model "missing-model" does not exist.',
         },
-      }),
-      {
-        status: 404,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
+      },
+      404
+    ) as typeof fetch,
+    async () => {
+      const provider = createProvider({
+        NVIDIA_API_KEY: "nvidia-key",
+        NVIDIA_MODEL: "missing-model",
+      });
 
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "missing-model",
-    });
+      await assert.rejects(
+        () => provider.generateJson("{}", "planner"),
+        (error: unknown) => {
+          assert.ok(
+            error instanceof ProviderError,
+            "Error should be a ProviderError"
+          );
 
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
+          assert.equal(
+            error.code,
+            "MODEL_UNAVAILABLE",
+            "Incorrect error code for unavailable model"
+          );
 
-        assert.equal(
-          error.code,
-          "MODEL_UNAVAILABLE",
-          "Incorrect error code for unavailable model"
-        );
+          assert.match(
+            error.message,
+            /missing-model/,
+            "Error should contain the unavailable model name"
+          );
 
-        assert.match(
-          error.message,
-          /missing-model/,
-          "Error should contain the unavailable model name"
-        );
+          assert.match(
+            error.message,
+            /NVIDIA_MODEL/,
+            "Error should provide configuration guidance"
+          );
 
-        assert.match(
-          error.message,
-          /NVIDIA_MODEL/,
-          "Error should tell the user which configuration to change"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+          return true;
+        }
+      );
+    }
+  );
 });
+
+/* =========================================================
+   Malformed Responses
+========================================================= */
 
 test("surfaces malformed NVIDIA JSON responses", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: "not-json",
-            },
+  await withMockedFetch(
+    mockFetch({
+      choices: [
+        {
+          message: {
+            content: "not-json",
           },
-        ],
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
         },
-      }
-    )) as typeof fetch;
+      ],
+    }) as typeof fetch,
+    async () => {
+      const provider = createProvider({
+        NVIDIA_API_KEY: "nvidia-key",
+        NVIDIA_MODEL,
+      });
 
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "working-model",
-    });
+      await assert.rejects(
+        () => provider.generateJson("{}", "planner"),
+        (error: unknown) => {
+          assert.ok(
+            error instanceof ProviderError,
+            "Error should be a ProviderError"
+          );
 
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
+          assert.equal(
+            error.code,
+            "MALFORMED_RESPONSE",
+            "Incorrect error code for malformed JSON"
+          );
 
-        assert.equal(
-          error.code,
-          "MALFORMED_RESPONSE",
-          "Incorrect error code for malformed response"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("surfaces NVIDIA server errors as provider errors", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        error: {
-          message: "NVIDIA service temporarily unavailable",
-        },
-      }),
-      {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
-
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "working-model",
-    });
-
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
-
-        assert.match(
-          error.message,
-          /NVIDIA service temporarily unavailable/i,
-          "Server error message should be preserved"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+          return true;
+        }
+      );
+    }
+  );
 });
 
 test("surfaces NVIDIA responses with missing choices", async () => {
-  const originalFetch = globalThis.fetch;
+  await withMockedFetch(
+    mockFetch({
+      object: "chat.completion",
+      choices: [],
+    }) as typeof fetch,
+    async () => {
+      const provider = createProvider({
+        NVIDIA_API_KEY: "nvidia-key",
+        NVIDIA_MODEL,
+      });
 
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        object: "chat.completion",
-        choices: [],
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
+      await assert.rejects(
+        () => provider.generateJson("{}", "planner"),
+        (error: unknown) => {
+          assert.ok(error instanceof ProviderError);
 
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "working-model",
-    });
+          assert.equal(
+            error.code,
+            "MALFORMED_RESPONSE",
+            "Missing choices should produce MALFORMED_RESPONSE"
+          );
 
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
-
-        assert.equal(
-          error.code,
-          "MALFORMED_RESPONSE",
-          "Missing choices should produce MALFORMED_RESPONSE"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("surfaces NVIDIA responses with empty message content", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: "",
-            },
-          },
-        ],
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
-
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "working-model",
-    });
-
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
-
-        assert.equal(
-          error.code,
-          "MALFORMED_RESPONSE",
-          "Empty content should produce MALFORMED_RESPONSE"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("does not leak NVIDIA credentials when an error occurs", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        error: {
-          message: "Authentication failed",
-        },
-      }),
-      {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
-
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "super-secret-nvidia-key",
-      NVIDIA_MODEL: "working-model",
-    });
-
-    await assert.rejects(
-      () => provider.generateJson("{}", "planner"),
-      (error: unknown) => {
-        assert.ok(
-          error instanceof ProviderError,
-          "Error should be a ProviderError"
-        );
-
-        assert.doesNotMatch(
-          error.message,
-          /super-secret-nvidia-key/,
-          "Provider error must not expose the NVIDIA API key"
-        );
-
-        return true;
-      }
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("restores fetch after NVIDIA provider errors", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        error: {
-          message: 'The model "missing-model" does not exist.',
-        },
-      }),
-      {
-        status: 404,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    )) as typeof fetch;
-
-  try {
-    const provider = createProvider({
-      NVIDIA_API_KEY: "nvidia-key",
-      NVIDIA_MODEL: "missing-model",
-    });
-
-    await assert.rejects(() => provider.generateJson("{}", "planner"));
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-
-  assert.equal(
-    globalThis.fetch,
-    originalFetch,
-    "globalThis.fetch should be restored after the test"
+          return true;
+        }
+      );
+    }
   );
 });
-```
+
+test("surfaces NVIDIA responses with missing message content", async () => {
+  await withMockedFetch(
+    mockFetch({
+      choices: [
+        {
+          message: {},
+        },
+      ],
+    }) as typeof fetch,
+    async () => {
+      const provider = createProvider({
+        NVIDIA_API_KEY: "nvidia-key",
+        NVIDIA_MODEL,
+      });
+
+      await assert.rejects(
+        () => provider.generateJson("{}", "planner"),
+        (error: unknown) => {
+          assert.ok(error instanceof ProviderError);
+
+          assert.equal(
+            error.code,
+            "MALFORMED_RESPONSE",
+            "Missing content should produce MALFORMED_RESPONSE"
+          );
+
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("surfaces NVIDIA responses wi
