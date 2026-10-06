@@ -5,19 +5,22 @@ import {
   KeyboardEvent,
   useEffect,
   useRef,
+  useState,
 } from "react";
+
 import {
-  MessageSquarePlus,
-  Send,
+  ArrowUp,
+  Check,
+  CheckCircle2,
+  Copy,
+  LayoutTemplate,
   Loader2,
+  MessageSquarePlus,
+  Palette,
   Sparkles,
+  Type,
   User,
   WandSparkles,
-  Palette,
-  LayoutTemplate,
-  Type,
-  ArrowUp,
-  CheckCircle2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -45,17 +48,17 @@ const MAX_MESSAGE_LENGTH = 1000;
 const suggestions = [
   {
     label: "Modern colors",
-    text: "Make the website color palette more modern and visually appealing",
+    text: "Make the website color palette more modern, balanced, and visually appealing.",
     icon: Palette,
   },
   {
     label: "Add pricing",
-    text: "Add a clean and responsive pricing section to the website",
+    text: "Add a clean, modern, and responsive pricing section to the website.",
     icon: LayoutTemplate,
   },
   {
     label: "Change font",
-    text: "Change the website font to a clean, modern sans-serif font",
+    text: "Change the website typography to a clean, modern sans-serif font.",
     icon: Type,
   },
 ];
@@ -73,14 +76,25 @@ export function ChatPanel({
   disabled,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
   const canEdit = !disabled && !working;
+
   const trimmedText = chatText.trim();
+
   const canSubmit =
     canEdit &&
     trimmedText.length > 0 &&
     chatText.length <= MAX_MESSAGE_LENGTH;
+
+  const remainingCharacters =
+    MAX_MESSAGE_LENGTH - chatText.length;
+
+  const isNearLimit = remainingCharacters <= 120;
+  const isAtLimit = remainingCharacters <= 0;
 
   /* =======================================================
      AUTO SCROLL
@@ -89,6 +103,7 @@ export function ChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
       behavior: "smooth",
+      block: "nearest",
     });
   }, [messages.length, working]);
 
@@ -102,19 +117,53 @@ export function ChatPanel({
     if (!textarea) return;
 
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(
-      textarea.scrollHeight,
+
+    const nextHeight = Math.min(
+      Math.max(textarea.scrollHeight, 72),
       180
-    )}px`;
+    );
+
+    textarea.style.height = `${nextHeight}px`;
   }, [chatText]);
 
   /* =======================================================
-     KEYBOARD SHORTCUT
+     FOCUS INPUT WHEN EDITING BECOMES AVAILABLE
+  ======================================================= */
+
+  useEffect(() => {
+    if (canEdit && messages.length === 0) {
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    }
+  }, [canEdit, messages.length]);
+
+  /* =======================================================
+     KEYBOARD HANDLING
+     
+     Enter       -> Submit
+     Shift+Enter -> New line
+     Ctrl+Enter  -> Submit
+     Cmd+Enter   -> Submit
   ======================================================= */
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>
   ) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      if (canSubmit) {
+        event.preventDefault();
+
+        const form = event.currentTarget.form;
+
+        if (form) {
+          form.requestSubmit();
+        }
+      }
+
+      return;
+    }
+
     if (
       (event.ctrlKey || event.metaKey) &&
       event.key === "Enter" &&
@@ -156,26 +205,67 @@ export function ChatPanel({
     });
   };
 
-  const remainingCharacters =
-    MAX_MESSAGE_LENGTH - chatText.length;
+  /* =======================================================
+     COPY MESSAGE
+  ======================================================= */
 
-  const isNearLimit = remainingCharacters <= 100;
+  const handleCopy = async (
+    id: string,
+    content: string
+  ) => {
+    try {
+      await navigator.clipboard.writeText(content);
+
+      setCopiedId(id);
+
+      window.setTimeout(() => {
+        setCopiedId(null);
+      }, 1600);
+    } catch {
+      // Clipboard may be unavailable in some environments.
+    }
+  };
+
+  /* =======================================================
+     SUBMIT WRAPPER
+     
+     Clears input only when the form is successfully submitted
+     by the parent.
+  ======================================================= */
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    if (!canSubmit) {
+      event.preventDefault();
+      return;
+    }
+
+    onSubmit(event);
+  };
 
   return (
     <section
       className="space-y-4 border-t border-line pt-5"
-      aria-label="Conversational website editor">
+      aria-label="Conversational website editor"
+    >
+      {/* ==================================================
+          HEADER
+      ================================================== */}
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal/10">
+          {/* Icon */}
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal/10">
             <MessageSquarePlus className="h-5 w-5 text-teal" />
 
             {!disabled && (
-              <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-paper bg-emerald-500" />
+              <span
+                className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-paper bg-emerald-500"
+                aria-label="AI editor available"
+              />
             )}
           </div>
 
+          {/* Title */}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-lg font-black tracking-tight text-ink">
@@ -183,7 +273,7 @@ export function ChatPanel({
               </h2>
 
               {!disabled && (
-                <span className="hidden rounded-full bg-teal/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-teal sm:inline-flex">
+                <span className="hidden rounded-full bg-teal/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-teal sm:inline-flex">
                   AI
                 </span>
               )}
@@ -197,7 +287,7 @@ export function ChatPanel({
 
         {/* Edit Counter */}
         {messages.length > 0 && (
-          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1">
+          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5">
             <CheckCircle2 className="h-3 w-3 text-teal" />
 
             <span className="text-[10px] font-bold text-ink/50">
@@ -213,7 +303,8 @@ export function ChatPanel({
       ================================================== */}
 
       <div
-        className="panel-scroll max-h-80 min-h-28 overflow-auto rounded-xl border border-line bg-paper/50 p-3"
+        ref={messagesContainerRef}
+        className="panel-scroll max-h-80 min-h-32 overflow-y-auto rounded-2xl border border-line bg-paper/50 p-3"
         aria-live="polite"
         aria-label="Edit conversation"
       >
@@ -222,31 +313,42 @@ export function ChatPanel({
              EMPTY STATE
           ------------------------------------------------- */
 
-          <div className="flex min-h-28 flex-col items-center justify-center px-5 py-5 text-center">
-            <div className="relative mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-teal/10">
-              <WandSparkles className="h-5 w-5 text-teal" />
+          <div className="flex min-h-28 flex-col items-center justify-center px-5 py-6 text-center">
+            <div className="relative mb-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal/10">
+                <WandSparkles className="h-5 w-5 text-teal" />
+              </div>
 
-              <span className="absolute inset-0 animate-ping rounded-full bg-teal/10" />
+              <span className="absolute inset-0 rounded-full border border-teal/10 animate-pulse" />
             </div>
 
-            <p className="text-xs font-bold text-ink/75">
+            <p className="text-xs font-bold text-ink/80">
               Your AI design assistant is ready
             </p>
 
-            <p className="mt-1 max-w-xs text-[11px] leading-4 text-ink/45">
-              Ask me to change colors, update text, add sections,
-              modify layouts, or improve your website.
+            <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-ink/45">
+              Tell me what you want to change. You can update
+              colors, text, layouts, sections, typography, and more.
             </p>
+
+            <div className="mt-3 flex items-center gap-1.5 rounded-full bg-teal/5 px-2.5 py-1">
+              <Sparkles className="h-3 w-3 text-teal" />
+
+              <span className="text-[9px] font-semibold text-teal">
+                AI-powered website editing
+              </span>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
             {messages.map((message) => {
               const isUser = message.role === "user";
+              const isCopied = copiedId === message.id;
 
               return (
                 <div
                   key={message.id}
-                  className={`flex gap-2.5 ${
+                  className={`group flex gap-2.5 ${
                     isUser
                       ? "flex-row-reverse"
                       : "flex-row"
@@ -268,41 +370,95 @@ export function ChatPanel({
                     )}
                   </div>
 
-                  {/* Message Content */}
+                  {/* Message Area */}
                   <div
-                    className={`max-w-[82%] rounded-xl border px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md ${
+                    className={`flex max-w-[84%] flex-col ${
                       isUser
-                        ? "border-accent/20 bg-accent/[0.06]"
-                        : "border-line bg-white"
+                        ? "items-end"
+                        : "items-start"
                     }`}
                   >
+                    {/* Message Bubble */}
                     <div
-                      className={`mb-1 text-[9px] font-black uppercase tracking-wider ${
+                      className={`rounded-2xl border px-3 py-2.5 shadow-sm transition-all duration-200 group-hover:shadow-md ${
                         isUser
-                          ? "text-accent"
-                          : "text-teal"
+                          ? "rounded-tr-md border-accent/20 bg-accent/[0.06]"
+                          : "rounded-tl-md border-line bg-white"
                       }`}
                     >
-                      {isUser ? "You" : "AI Assistant"}
+                      {/* Role */}
+                      <div
+                        className={`mb-1.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider ${
+                          isUser
+                            ? "text-accent"
+                            : "text-teal"
+                        }`}
+                      >
+                        {isUser ? (
+                          <>
+                            <User className="h-2.5 w-2.5" />
+                            You
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-2.5 w-2.5" />
+                            AI Assistant
+                          </>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <p className="whitespace-pre-wrap break-words text-xs leading-5 text-ink">
+                        {message.content}
+                      </p>
                     </div>
 
-                    <p className="whitespace-pre-wrap break-words text-xs leading-5 text-ink">
-                      {message.content}
-                    </p>
+                    {/* Message Actions */}
+                    {!isUser && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopy(
+                            message.id,
+                            message.content
+                          )
+                        }
+                        className="mt-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium text-ink/30 opacity-0 transition-all hover:bg-ink/[0.04] hover:text-ink/60 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-teal/20 group-hover:opacity-100"
+                        aria-label={
+                          isCopied
+                            ? "Message copied"
+                            : "Copy AI response"
+                        }
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="h-3 w-3 text-emerald-500" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3" />
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
 
-            {/* AI THINKING */}
+            {/* ==================================================
+                AI THINKING
+            ================================================== */}
 
             {working && (
-              <div className="flex items-center gap-2.5">
+              <div className="flex gap-2.5">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal/10">
-                  <Sparkles className="h-3.5 w-3.5 text-teal" />
+                  <Sparkles className="h-3.5 w-3.5 animate-pulse text-teal" />
                 </div>
 
-                <div className="rounded-xl border border-line bg-white px-3.5 py-2.5 shadow-sm">
+                <div className="rounded-2xl rounded-tl-md border border-line bg-white px-3.5 py-2.5 shadow-sm">
                   <div className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal" />
 
@@ -321,7 +477,7 @@ export function ChatPanel({
                     />
 
                     <span className="ml-1 text-[9px] font-medium text-ink/40">
-                      Applying your changes...
+                      Applying changes...
                     </span>
                   </div>
                 </div>
@@ -338,13 +494,17 @@ export function ChatPanel({
       ================================================== */}
 
       <form
-        onSubmit={onSubmit}
+        onSubmit={handleSubmit}
         className="space-y-2.5"
       >
+        {/* ==================================================
+            INPUT CONTAINER
+        ================================================== */}
+
         <div
-          className={`relative overflow-hidden rounded-xl border bg-paper transition-all duration-200 ${
+          className={`relative overflow-hidden rounded-2xl border bg-paper transition-all duration-200 ${
             canEdit
-              ? "border-line focus-within:border-teal focus-within:ring-2 focus-within:ring-teal/10"
+              ? "border-line shadow-sm focus-within:border-teal/50 focus-within:ring-4 focus-within:ring-teal/5"
               : "border-line opacity-70"
           }`}
         >
@@ -363,23 +523,49 @@ export function ChatPanel({
             maxLength={MAX_MESSAGE_LENGTH}
             aria-label="Describe your website edit"
             aria-describedby="chat-input-help"
-            className="min-h-24 w-full resize-none overflow-y-auto rounded-xl bg-transparent px-3.5 py-3 pr-14 text-sm leading-5 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
+            className="block min-h-[72px] w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-12 pt-3.5 pr-14 text-sm leading-5 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
           />
 
-          {/* Input Status */}
+          {/* Bottom Input Bar */}
+          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
+            {/* Character Counter */}
+            <div>
+              {chatText.length > 0 && (
+                <span
+                  className={`text-[9px] font-medium ${
+                    isAtLimit
+                      ? "text-red-500"
+                      : isNearLimit
+                        ? "text-orange-500"
+                        : "text-ink/30"
+                  }`}
+                >
+                  {chatText.length}/{MAX_MESSAGE_LENGTH}
+                </span>
+              )}
+            </div>
 
-          <div className="absolute bottom-2.5 right-3 flex items-center gap-2">
-            {chatText.length > 0 && (
-              <span
-                className={`text-[9px] font-medium ${
-                  isNearLimit
-                    ? "text-orange-500"
-                    : "text-ink/30"
-                }`}
-              >
-                {chatText.length}/{MAX_MESSAGE_LENGTH}
-              </span>
-            )}
+            {/* Send Button */}
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-200 ${
+                canSubmit
+                  ? "bg-ink text-white shadow-sm hover:-translate-y-0.5 hover:bg-black hover:shadow-md active:translate-y-0"
+                  : "cursor-not-allowed bg-ink/[0.06] text-ink/20"
+              }`}
+              aria-label={
+                working
+                  ? "Applying changes"
+                  : "Apply edit"
+              }
+            >
+              {working ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </div>
 
@@ -398,13 +584,20 @@ export function ChatPanel({
 
             <span className="hidden items-center gap-1.5 text-[9px] text-ink/30 sm:flex">
               <kbd className="rounded border border-line bg-paper px-1.5 py-0.5 font-medium">
-                Ctrl
+                Enter
+              </kbd>
+              to apply
+              <span className="mx-0.5 text-ink/20">
+                •
+              </span>
+              <kbd className="rounded border border-line bg-paper px-1.5 py-0.5 font-medium">
+                Shift
               </kbd>
               +
               <kbd className="rounded border border-line bg-paper px-1.5 py-0.5 font-medium">
                 Enter
               </kbd>
-              to apply
+              for new line
             </span>
           </div>
         )}
@@ -414,7 +607,7 @@ export function ChatPanel({
         ================================================== */}
 
         {!chatText.trim() && canEdit && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center gap-1.5 px-1">
               <Sparkles className="h-3 w-3 text-teal" />
 
@@ -423,7 +616,7 @@ export function ChatPanel({
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
               {suggestions.map((suggestion) => {
                 const Icon = suggestion.icon;
 
@@ -434,11 +627,21 @@ export function ChatPanel({
                     onClick={() =>
                       handleSuggestion(suggestion.text)
                     }
-                    className="group inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5 text-[10px] font-semibold text-ink/55 transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/40 hover:bg-teal/5 hover:text-teal hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-teal/20 active:translate-y-0"
+                    className="group flex items-center gap-2 rounded-xl border border-line bg-paper px-2.5 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/30 hover:bg-teal/[0.04] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-teal/20 active:translate-y-0"
                   >
-                    <Icon className="h-3 w-3 transition-transform duration-200 group-hover:scale-110" />
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal transition-colors group-hover:bg-teal/15">
+                      <Icon className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" />
+                    </span>
 
-                    {suggestion.label}
+                    <span className="min-w-0">
+                      <span className="block truncate text-[10px] font-bold text-ink/65 group-hover:text-teal">
+                        {suggestion.label}
+                      </span>
+
+                      <span className="mt-0.5 block truncate text-[8px] text-ink/30">
+                        Try this edit
+                      </span>
+                    </span>
                   </button>
                 );
               })}
@@ -447,13 +650,13 @@ export function ChatPanel({
         )}
 
         {/* ==================================================
-            SUBMIT BUTTON
+            MAIN SUBMIT BUTTON
         ================================================== */}
 
         <Button
           type="submit"
           variant="primary"
-          className="group w-full gap-2 rounded-lg font-bold transition-all"
+          className="group w-full gap-2 rounded-xl font-bold transition-all"
           disabled={!canSubmit}
           aria-label={
             working
@@ -468,9 +671,11 @@ export function ChatPanel({
             </>
           ) : (
             <>
-              <Send className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              Apply Edit
-              <ArrowUp className="ml-auto h-3.5 w-3.5 opacity-40 transition-transform group-hover:-translate-y-0.5" />
+              <Sparkles className="h-4 w-4 transition-transform duration-200 group-hover:rotate-12" />
+
+              <span>Apply Edit</span>
+
+              <ArrowUp className="ml-auto h-3.5 w-3.5 opacity-40 transition-transform duration-200 group-hover:-translate-y-0.5" />
             </>
           )}
         </Button>
@@ -480,7 +685,7 @@ export function ChatPanel({
         ================================================== */}
 
         {disabled && (
-          <div className="flex items-center justify-center gap-2 rounded-md bg-ink/[0.03] px-3 py-2">
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-ink/[0.03] px-3 py-2.5">
             <span className="h-1.5 w-1.5 rounded-full bg-ink/25" />
 
             <p className="text-[10px] font-medium text-ink/40">
