@@ -1,15 +1,29 @@
+
 {
   "name": "@sitecraft/backend",
   "version": "0.1.0",
   "private": true,
+  "description": "SiteCraft backend API and AI website generation service",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc -p tsconfig.json",
+
+    "build": "npm run typecheck && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+
     "test": "tsx --test src/*.test.ts",
-    "prisma:validate": "DATABASE_URL=${DATABASE_URL:-postgresql://sitecraft:sitecraft@localhost:5432/sitecraft} prisma validate --schema prisma/schema.prisma",
-    "prisma:generate": "prisma generate --schema prisma/schema.prisma"
+    "test:watch": "tsx --test --watch src/*.test.ts",
+
+    "check": "npm run typecheck && npm test",
+
+    "prisma:validate": "prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@sitecraft/ml": "*",
