@@ -1,4 +1,3 @@
-```ts
 import dotenv from "dotenv";
 import path from "node:path";
 import http from "node:http";
@@ -57,8 +56,29 @@ dotenv.config({
   path: path.resolve(process.cwd(), "../.env"),
 });
 
-const port = Number(
-  process.env.BACKEND_PORT || 4000
+function getPositiveEnvNumber(
+  value: string | undefined,
+  fallback: number,
+  minimum = 1,
+  maximum = Number.MAX_SAFE_INTEGER
+) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(
+    Math.max(Math.floor(parsed), minimum),
+    maximum
+  );
+}
+
+const SERVER_PORT = getPositiveEnvNumber(
+  process.env.BACKEND_PORT,
+  4000,
+  1,
+  65535
 );
 
 const provider = createProvider();
@@ -67,9 +87,11 @@ const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN ||
   "http://localhost:3000";
 
-const MAX_BODY_SIZE =
-  Number(process.env.MAX_BODY_SIZE) ||
-  2 * 1024 * 1024;
+const MAX_BODY_SIZE = getPositiveEnvNumber(
+  process.env.MAX_BODY_SIZE,
+  2 * 1024 * 1024,
+  1024
+);
 
 const MAX_PAGE_SIZE = 100;
 const DEFAULT_PAGE_SIZE = 20;
@@ -86,6 +108,7 @@ function corsHeaders() {
       "Content-Type, x-user-id, x-user-role",
     "Access-Control-Allow-Methods":
       "GET, POST, PATCH, DELETE, OPTIONS",
+    Vary: "Origin",
   };
 }
 
@@ -107,11 +130,19 @@ function sendJson(
     "Content-Type":
       "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
   });
 
-  response.end(
-    JSON.stringify(body)
+  const payload = JSON.stringify(body);
+
+  response.setHeader(
+    "Content-Length",
+    Buffer.byteLength(payload)
   );
+
+  response.end(payload);
 }
 
 function sendError(
@@ -287,7 +318,7 @@ function errorResponse(
   if (error instanceof Error) {
     return {
       code: "REQUEST_FAILED",
-      message: error.message,
+      message: "Request failed. Please try again.",
     };
   }
 
@@ -391,6 +422,19 @@ const server = http.createServer(
     request,
     response
   ) => {
+    request.setTimeout(30_000, () => {
+      if (!response.headersSent) {
+        sendError(
+          response,
+          408,
+          "REQUEST_TIMEOUT",
+          "Request timed out."
+        );
+      }
+
+      request.destroy();
+    });
+
     // ---------------------------------------------------------------------------
     // CORS preflight
     // ---------------------------------------------------------------------------
@@ -422,15 +466,8 @@ const server = http.createServer(
         "x-user-id"
       ]?.toString();
 
-    /*
-     * This header is kept for compatibility with
-     * existing project-store calls, but it is NOT
-     * trusted for admin authorization.
-     */
-    const suppliedUserRole =
-      request.headers[
-        "x-user-role"
-      ]?.toString();
+    // x-user-role is accepted for frontend compatibility,
+    // but authorization always uses the stored role.
 
     // ---------------------------------------------------------------------------
     // Authentication
@@ -451,24 +488,35 @@ const server = http.createServer(
       return true;
     };
 
+    let authenticatedRole: string | undefined;
+
+    const getAuthenticatedRole = async (): Promise<string> => {
+      if (!userId) {
+        return "";
+      }
+
+      if (authenticatedRole !== undefined) {
+        return authenticatedRole;
+      }
+
+      const storedRole = await getUserRole(userId);
+
+      authenticatedRole =
+        typeof storedRole === "string"
+          ? storedRole.toUpperCase()
+          : "USER";
+
+      return authenticatedRole;
+    };
+
     const requireAdmin =
       async () => {
         if (!requireAuth()) {
           return false;
         }
 
-        /*
-         * Always use the stored role for admin
-         * authorization instead of trusting a
-         * client-provided x-user-role header.
-         */
-        const storedRole =
-          await getUserRole(userId!);
-
         const role =
-          typeof storedRole === "string"
-            ? storedRole.toUpperCase()
-            : "";
+          await getAuthenticatedRole();
 
         if (role !== "ADMIN") {
           sendError(
@@ -492,11 +540,14 @@ const server = http.createServer(
           return undefined;
         }
 
+        const role =
+          await getAuthenticatedRole();
+
         const project =
           await getProject(
             projectId,
             userId,
-            suppliedUserRole
+            role
           );
 
         if (!project) {
@@ -1292,7 +1343,7 @@ const server = http.createServer(
         const projects =
           await listProjects(
             userId!,
-            suppliedUserRole
+            await getAuthenticatedRole()
           );
 
         return sendJson(
@@ -1594,6 +1645,8 @@ const server = http.createServer(
                 archive.length,
               "Cache-Control":
                 "no-store",
+              "X-Content-Type-Options":
+                "nosniff",
             }
           );
 
@@ -1786,15 +1839,29 @@ const server = http.createServer(
 // Startup
 // -----------------------------------------------------------------------------
 
+server.on("error", (error) => {
+  console.error(
+    JSON.stringify({
+      event: "backend_startup_error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unknown server error",
+    })
+  );
+
+  process.exitCode = 1;
+});
+
 server.listen(
-  port,
+  SERVER_PORT,
   () => {
     console.log(
       JSON.stringify({
         event:
           "backend_started",
 
-        port,
+        port: SERVER_PORT,
 
         activeProvider:
           provider.config.provider,
@@ -1861,4 +1928,3 @@ process.on(
   "SIGTERM",
   handleShutdown
 );
-```
