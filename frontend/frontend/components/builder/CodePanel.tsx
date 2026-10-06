@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -41,11 +40,17 @@ function getLanguageLabel(file?: GeneratedFile) {
     ts: "typescript",
     jsx: "jsx",
     js: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
     json: "json",
     css: "css",
     scss: "scss",
+    sass: "sass",
+    less: "less",
     html: "html",
+    htm: "html",
     md: "markdown",
+    mdx: "mdx",
   };
 
   return languageMap[extension || ""] || "text";
@@ -68,7 +73,6 @@ export function CodePanel({
     files.find((file) => file.path === selectedFile) ?? files[0];
 
   const codeContent = activeFile?.content ?? "";
-
   const codeLines = codeContent.split("\n");
 
   const language = getLanguageLabel(activeFile);
@@ -101,15 +105,14 @@ export function CodePanel({
   };
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-white">
+    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper">
       {/* =====================================================
           HEADER
       ====================================================== */}
 
-      <div className="shrink-0 border-b border-line bg-paper/70">
-        {/* Main Header */}
+      <div className="shrink-0 border-b border-line bg-paper">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          {/* Title */}
+          {/* Project Info */}
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10">
               <Code2 className="h-5 w-5 text-accent" />
@@ -136,7 +139,7 @@ export function CodePanel({
             </div>
           </div>
 
-          {/* Copy Button */}
+          {/* Copy */}
           {activeFile && (
             <button
               type="button"
@@ -152,7 +155,7 @@ export function CodePanel({
                   ? "Copied to clipboard"
                   : "Copy active file"
               }
-              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-40 ${
                 copied
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border-line bg-white text-ink/65 shadow-sm hover:bg-ink/[0.04] hover:text-ink"
@@ -179,15 +182,20 @@ export function CodePanel({
 
         {website?.qa && (
           <div className="px-4 pb-3">
-            <div className="rounded-lg border border-line bg-white p-3 shadow-sm">
-              {/* QA Header */}
+            <div
+              className={`rounded-xl border p-3 shadow-sm ${
+                qaPassed
+                  ? "border-emerald-200/70 bg-emerald-50/60"
+                  : "border-amber-200/70 bg-amber-50/60"
+              }`}
+            >
               <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2.5">
                   <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                       qaPassed
-                        ? "bg-emerald-50"
-                        : "bg-amber-50"
+                        ? "bg-emerald-100"
+                        : "bg-amber-100"
                     }`}
                   >
                     {qaPassed ? (
@@ -198,15 +206,15 @@ export function CodePanel({
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-ink/35">
+                    <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-ink/35">
                       Quality Check
                     </p>
 
                     <p
                       className={`mt-0.5 truncate text-xs font-bold ${
                         qaPassed
-                          ? "text-emerald-600"
-                          : "text-amber-600"
+                          ? "text-emerald-700"
+                          : "text-amber-700"
                       }`}
                     >
                       {qaPassed
@@ -216,9 +224,14 @@ export function CodePanel({
                   </div>
                 </div>
 
-                {/* Score */}
                 <div className="shrink-0 text-right">
-                  <span className="text-lg font-black tracking-tight text-ink">
+                  <span
+                    className={`text-lg font-black tracking-tight ${
+                      qaPassed
+                        ? "text-emerald-700"
+                        : "text-amber-700"
+                    }`}
+                  >
                     {qaScore}
                   </span>
 
@@ -228,9 +241,9 @@ export function CodePanel({
                 </div>
               </div>
 
-              {/* Progress */}
+              {/* QA Progress */}
               <div className="mt-3">
-                <div className="h-1.5 overflow-hidden rounded-full bg-ink/5">
+                <div className="h-1.5 overflow-hidden rounded-full bg-black/5">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${
                       qaPassed
@@ -249,17 +262,49 @@ export function CodePanel({
                   <span>100</span>
                 </div>
               </div>
+
+              {/* Issues */}
+              {website.qa.issues?.length ? (
+                <div className="mt-3 border-t border-black/5 pt-2.5">
+                  <p className="mb-1.5 text-[8px] font-bold uppercase tracking-wider text-ink/35">
+                    {website.qa.issues.length} issue
+                    {website.qa.issues.length === 1 ? "" : "s"} found
+                  </p>
+
+                  <div className="space-y-1">
+                    {website.qa.issues.slice(0, 3).map((issue, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-1.5 text-[9px] text-ink/55"
+                      >
+                        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+
+                        <span className="truncate">
+                          {issue.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {website.qa.issues.length > 3 && (
+                    <p className="mt-1.5 text-[8px] text-ink/35">
+                      +{website.qa.issues.length - 3} more issues
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
 
       {/* =====================================================
-          MAIN CODE WORKSPACE
+          WORKSPACE
       ====================================================== */}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[170px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-[180px_minmax(0,1fr)]">
         {/* File Explorer */}
+
         <FileExplorer
           files={files}
           selectedFile={activeFile?.path || ""}
@@ -272,8 +317,8 @@ export function CodePanel({
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#101214]">
           {/* Editor Header */}
+
           <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/10 bg-[#17191c] px-3">
-            {/* Active File */}
             <div className="flex min-w-0 items-center gap-2">
               {activeFile ? (
                 <>
@@ -299,11 +344,10 @@ export function CodePanel({
               )}
             </div>
 
-            {/* Language */}
             {activeFile && (
               <div className="ml-2 flex shrink-0 items-center gap-2">
-                <span className="hidden text-[8px] font-medium text-white/20 sm:inline">
-                  SOURCE
+                <span className="hidden text-[8px] font-medium uppercase tracking-wider text-white/20 sm:inline">
+                  Source
                 </span>
 
                 <span className="rounded border border-white/10 bg-white/5 px-2 py-1 font-mono text-[8px] font-semibold uppercase tracking-wide text-white/50">
@@ -320,6 +364,7 @@ export function CodePanel({
           {activeFile ? (
             <div className="panel-scroll flex min-h-0 flex-1 overflow-auto">
               {/* Line Numbers */}
+
               <div className="sticky left-0 z-10 min-h-full shrink-0 select-none border-r border-white/5 bg-[#101214] px-3 py-4 text-right font-mono text-[10px] leading-5 text-white/20">
                 {codeLines.map((_, index) => (
                   <div
@@ -332,15 +377,12 @@ export function CodePanel({
               </div>
 
               {/* Code */}
+
               <pre className="min-w-max flex-1 select-text p-4 font-mono text-[11px] leading-5 text-[#f7f3eb]">
                 <code>{codeContent}</code>
               </pre>
             </div>
           ) : (
-            /* =================================================
-               EMPTY EDITOR
-            ================================================== */
-
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
                 <Files className="h-6 w-6 text-white/20" />
@@ -363,7 +405,6 @@ export function CodePanel({
 
           {activeFile && (
             <div className="flex h-7 shrink-0 items-center justify-between border-t border-white/10 bg-[#17191c] px-3">
-              {/* Left Stats */}
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1 font-mono text-[9px] text-white/30">
                   <Hash className="h-2.5 w-2.5" />
@@ -376,7 +417,6 @@ export function CodePanel({
                 </span>
               </div>
 
-              {/* Read Only */}
               <div className="flex items-center gap-1.5 text-[9px] text-white/25">
                 <LockKeyhole className="h-2.5 w-2.5" />
                 <span>Read only</span>
@@ -388,44 +428,3 @@ export function CodePanel({
     </aside>
   );
 }
-```
-
-### Main improvements
-
-**1. Better code workspace**
-
-* More polished editor header
-* Active file icon
-* Source/language indicator
-* Cleaner line numbers
-* Better empty state
-
-**2. Better QA section**
-
-* Score clamped safely between `0–100`
-* More visible progress scale
-* Cleaner status hierarchy
-* Better spacing
-
-**3. Better file information**
-
-* File count badge on the code icon
-* Active language detection fallback if `language` isn't provided
-* Line count in the footer
-
-**4. Better UX**
-
-* Copy button has proper success state
-* Keyboard focus states
-* Disabled state
-* `window.setTimeout()` for browser-safe timeout handling
-
-**5. Same API**
-You can continue using it exactly as before:
-
-```tsx
-<CodePanel
-  website={website}
-  selectedFile={selectedFile}
-  onSelectFile={onSelectFile}
-/>
