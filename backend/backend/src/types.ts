@@ -6,8 +6,12 @@ import type {
 } from "@sitecraft/ml";
 
 /* =========================================================
-   Common Types
+   Primitive / Common Types
 ========================================================= */
+
+export type ID = string;
+
+export type ISODateString = string;
 
 export type UserRole = "USER" | "ADMIN";
 
@@ -32,7 +36,10 @@ export type GenerationStatus =
   | "SUCCESS"
   | "FAILED";
 
-export type ChatMessageRole = "user" | "assistant" | "system";
+export type ChatMessageRole =
+  | "user"
+  | "assistant"
+  | "system";
 
 export type ActivityType =
   | "user"
@@ -42,18 +49,41 @@ export type ActivityType =
   | "website";
 
 /* =========================================================
+   Common JSON Types
+========================================================= */
+
+export type JsonPrimitive =
+  | string
+  | number
+  | boolean
+  | null;
+
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | {
+      [key: string]: JsonValue;
+    };
+
+export type JsonObject = {
+  [key: string]: JsonValue;
+};
+
+/* =========================================================
    User
 ========================================================= */
 
 export interface UserRecord {
-  id: string;
+  id: ID;
+
   name?: string | null;
   email: string;
   image?: string | null;
+
   role: UserRole;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 
   projectsCount?: number;
   generationsCount?: number;
@@ -69,8 +99,8 @@ export interface UserRecord {
 ========================================================= */
 
 export interface WebsiteRecord {
-  id: string;
-  projectId: string;
+  id: ID;
+  projectId: ID;
 
   title: string;
   description: string;
@@ -84,8 +114,8 @@ export interface WebsiteRecord {
 
   version: number;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 
   qa?: QAResult;
 
@@ -97,20 +127,20 @@ export interface WebsiteRecord {
 ========================================================= */
 
 export interface WebsitePageRecord {
-  id: string;
-  websiteId: string;
+  id: ID;
+  websiteId: ID;
 
   name: string;
   slug: string;
   pageType: string;
 
-  content: unknown;
+  content: JsonValue;
   generatedCode?: string | null;
 
   order: number;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
 
 /* =========================================================
@@ -118,12 +148,12 @@ export interface WebsitePageRecord {
 ========================================================= */
 
 export interface DeploymentRecord {
-  id: string;
-  projectId: string;
+  id: ID;
+  projectId: ID;
 
   projectName?: string;
 
-  userId?: string;
+  userId?: ID;
   userEmail?: string;
 
   provider: string;
@@ -133,8 +163,8 @@ export interface DeploymentRecord {
 
   status: DeploymentStatus;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
 
 /* =========================================================
@@ -142,9 +172,10 @@ export interface DeploymentRecord {
 ========================================================= */
 
 export interface ApiUsageRecord {
-  id: string;
+  id: ID;
 
-  userId: string;
+  userId: ID;
+
   userEmail?: string;
   userName?: string;
 
@@ -154,7 +185,7 @@ export interface ApiUsageRecord {
   tokens?: number;
   estimatedCost?: number;
 
-  createdAt: string;
+  createdAt: ISODateString;
 }
 
 /* =========================================================
@@ -162,12 +193,12 @@ export interface ApiUsageRecord {
 ========================================================= */
 
 export interface GenerationRecord {
-  id: string;
+  id: ID;
 
-  projectId?: string;
+  projectId?: ID;
   projectName?: string;
 
-  userId?: string;
+  userId?: ID;
   userEmail?: string;
 
   agent: string;
@@ -175,14 +206,14 @@ export interface GenerationRecord {
 
   status: GenerationStatus;
 
-  input?: unknown;
-  output?: unknown;
+  input?: JsonValue;
+  output?: JsonValue;
   error?: string;
 
   tokenUsage?: number;
   durationMs?: number;
 
-  createdAt: string;
+  createdAt: ISODateString;
 }
 
 /* =========================================================
@@ -190,19 +221,19 @@ export interface GenerationRecord {
 ========================================================= */
 
 export interface ChatMessageRecord {
-  id: string;
+  id: ID;
 
-  projectId?: string;
+  projectId?: ID;
   projectName?: string;
 
-  userId?: string;
+  userId?: ID;
   userEmail?: string;
 
   role: ChatMessageRole;
 
   content: string;
 
-  createdAt: string;
+  createdAt: ISODateString;
 }
 
 /* =========================================================
@@ -210,9 +241,9 @@ export interface ChatMessageRecord {
 ========================================================= */
 
 export interface ProjectRecord {
-  id: string;
+  id: ID;
 
-  userId: string;
+  userId: ID;
 
   userEmail?: string;
   userName?: string;
@@ -225,8 +256,8 @@ export interface ProjectRecord {
 
   framework: string;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 
   websites: WebsiteRecord[];
   generations: GenerationRecord[];
@@ -245,25 +276,60 @@ export interface ProjectRecord {
 ========================================================= */
 
 export interface AdminAuditLogRecord {
-  id: string;
+  id: ID;
 
-  adminUserId: string;
+  adminUserId: ID;
+
   adminEmail?: string;
   adminName?: string;
 
   action: string;
 
   targetType: string;
-  targetId: string;
+  targetId: ID;
 
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, JsonValue>;
 
-  createdAt: string;
+  createdAt: ISODateString;
 }
 
 /* =========================================================
    Admin Statistics
 ========================================================= */
+
+export interface GrowthPoint {
+  date: ISODateString;
+  count: number;
+}
+
+export interface GenerationTimelinePoint {
+  date: ISODateString;
+
+  success: number;
+  failed: number;
+  running: number;
+}
+
+export interface AgentUsageStat {
+  agent: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ProviderDistributionStat {
+  provider: string;
+
+  count: number;
+  tokens: number;
+  estimatedCost: number;
+}
+
+export interface ModelDistributionStat {
+  model: string;
+
+  count: number;
+  tokens: number;
+}
 
 export interface AdminStats {
   totalUsers: number;
@@ -278,41 +344,16 @@ export interface AdminStats {
   failedGenerations: number;
   runningGenerations: number;
 
-  userGrowth: Array<{
-    date: string;
-    count: number;
-  }>;
+  userGrowth: GrowthPoint[];
+  projectGrowth: GrowthPoint[];
 
-  projectGrowth: Array<{
-    date: string;
-    count: number;
-  }>;
+  generationTimeline: GenerationTimelinePoint[];
 
-  generationTimeline: Array<{
-    date: string;
-    success: number;
-    failed: number;
-    running: number;
-  }>;
+  agentUsage: AgentUsageStat[];
 
-  agentUsage: Array<{
-    agent: string;
-    count: number;
-    percentage: number;
-  }>;
+  providerDistribution: ProviderDistributionStat[];
 
-  providerDistribution: Array<{
-    provider: string;
-    count: number;
-    tokens: number;
-    estimatedCost: number;
-  }>;
-
-  modelDistribution: Array<{
-    model: string;
-    count: number;
-    tokens: number;
-  }>;
+  modelDistribution: ModelDistributionStat[];
 }
 
 /* =========================================================
@@ -320,7 +361,7 @@ export interface AdminStats {
 ========================================================= */
 
 export interface RecentActivityItem {
-  id: string;
+  id: ID;
 
   type: ActivityType;
 
@@ -328,15 +369,15 @@ export interface RecentActivityItem {
   subtitle: string;
   status: string;
 
-  timestamp: string;
+  timestamp: ISODateString;
 
-  userId?: string;
+  userId?: ID;
   userEmail?: string;
 
-  projectId?: string;
+  projectId?: ID;
   projectName?: string;
 
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, JsonValue>;
 }
 
 /* =========================================================
@@ -346,6 +387,11 @@ export interface RecentActivityItem {
 export interface PaginationParams {
   page?: number;
   pageSize?: number;
+}
+
+export interface RequiredPagination {
+  page: number;
+  pageSize: number;
 }
 
 export interface PaginatedResult<T> {
@@ -359,39 +405,64 @@ export interface PaginatedResult<T> {
 }
 
 /* =========================================================
-   Common Filters
+   Date Range
 ========================================================= */
 
 export interface DateRangeFilter {
-  from?: string;
-  to?: string;
+  from?: ISODateString;
+  to?: ISODateString;
 }
+
+/* =========================================================
+   Project Filters
+========================================================= */
 
 export interface ProjectFilter {
-  userId?: string;
+  userId?: ID;
+
   status?: ProjectStatus;
+
   search?: string;
 }
+
+/* =========================================================
+   Generation Filters
+========================================================= */
 
 export interface GenerationFilter {
-  userId?: string;
-  projectId?: string;
+  userId?: ID;
+  projectId?: ID;
+
   agent?: string;
+
   status?: GenerationStatus;
+
   provider?: string;
   model?: string;
+
   search?: string;
 }
 
+/* =========================================================
+   Deployment Filters
+========================================================= */
+
 export interface DeploymentFilter {
-  userId?: string;
-  projectId?: string;
+  userId?: ID;
+  projectId?: ID;
+
   provider?: string;
+
   status?: DeploymentStatus;
 }
 
+/* =========================================================
+   Usage Filters
+========================================================= */
+
 export interface UsageFilter {
-  userId?: string;
+  userId?: ID;
+
   provider?: string;
   model?: string;
 }
@@ -443,19 +514,27 @@ export interface AdminUsageListParams
     UsageFilter {}
 
 /* =========================================================
-   API Response Helpers
+   API Response Types
 ========================================================= */
 
 export interface ApiSuccessResponse<T> {
   success: true;
+
   data: T;
+
+  requestId?: string;
 }
 
 export interface ApiErrorResponse {
   success: false;
+
   error: string;
+
   code?: string;
-  details?: unknown;
+
+  details?: JsonValue;
+
+  requestId?: string;
 }
 
 export type ApiResponse<T> =
@@ -473,8 +552,27 @@ export interface GenerationMetadata {
   tokens?: number;
   durationMs?: number;
 
-  startedAt?: string;
-  completedAt?: string;
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+}
+
+/* =========================================================
+   AI Provider Metadata
+========================================================= */
+
+export interface AIProviderMetadata {
+  provider: string;
+  model?: string;
+
+  tokens?: number;
+  estimatedCost?: number;
+
+  requestId?: string;
+
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+
+  durationMs?: number;
 }
 
 /* =========================================================
@@ -482,7 +580,8 @@ export interface GenerationMetadata {
 ========================================================= */
 
 export interface DeploymentResult {
-  id: string;
+  id: ID;
+
   provider: string;
 
   url?: string;
@@ -492,6 +591,89 @@ export interface DeploymentResult {
 
   error?: string;
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/* =========================================================
+   API Usage Summary
+========================================================= */
+
+export interface ApiUsageSummary {
+  provider: string;
+
+  model?: string;
+
+  requestCount: number;
+
+  totalTokens: number;
+
+  estimatedCost: number;
+}
+
+/* =========================================================
+   Project Summary
+========================================================= */
+
+export interface ProjectSummary {
+  id: ID;
+
+  name: string;
+  description: string;
+
+  status: ProjectStatus;
+
+  framework: string;
+
+  websitesCount: number;
+  generationsCount: number;
+  messagesCount: number;
+  deploymentsCount: number;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/* =========================================================
+   Generation Summary
+========================================================= */
+
+export interface GenerationSummary {
+  id: ID;
+
+  projectId?: ID;
+  projectName?: string;
+
+  agent: string;
+
+  status: GenerationStatus;
+
+  provider?: string;
+  model?: string;
+
+  tokenUsage?: number;
+  durationMs?: number;
+
+  createdAt: ISODateString;
+}
+
+/* =========================================================
+   Deployment Summary
+========================================================= */
+
+export interface DeploymentSummary {
+  id: ID;
+
+  projectId: ID;
+  projectName?: string;
+
+  provider: string;
+
+  status: DeploymentStatus;
+
+  deploymentUrl?: string;
+  deploymentId?: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
