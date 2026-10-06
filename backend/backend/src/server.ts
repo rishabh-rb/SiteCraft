@@ -1,1489 +1,892 @@
-```ts
-import dotenv from "dotenv";
-import path from "node:path";
-import http from "node:http";
-import { URL } from "node:url";
-import JSZip from "jszip";
-import { z } from "zod";
+
+import test from "node:test";
+import assert from "node:assert/strict";
+
 import { createProvider, ProviderError } from "@sitecraft/ml";
 
-import {
-  createProject,
-  deleteProject,
-  getProject,
-  listProjects,
-  recordDeployment,
-  recordApiUsage,
-  getUserRole,
-  getAdminStats,
-  listAdminUsers,
-  getAdminUserDetail,
-  updateUserRole,
-  listAdminProjects,
-  getAdminProjectDetail,
-  listAdminWebsites,
-  getAdminWebsiteDetail,
-  listAdminGenerations,
-  getAdminGenerationDetail,
-  getAdminUsageAnalytics,
-  listAdminDeployments,
-  listAdminChats,
-  getAdminRecentActivity,
-  listAdminAuditLogs,
-} from "./store.js";
-
-import { createProjectSchema, promptSchema } from "./validators.js";
-import { generateProject, reviseProject } from "./orchestrator.js";
-import { deployToVercel } from "./deployment/vercel.js";
-import { deployToNetlify } from "./deployment/netlify.js";
-
-// -----------------------------------------------------------------------------
-// Environment
-// -----------------------------------------------------------------------------
-
-dotenv.config({
-  path: path.resolve(process.cwd(), ".env"),
-});
-
-dotenv.config({
-  path: path.resolve(process.cwd(), "../.env"),
-});
-
-const port = Number(process.env.BACKEND_PORT || 4000);
-
-const provider = createProvider();
-
-const FRONTEND_ORIGIN =
-  process.env.FRONTEND_ORIGIN || "http://localhost:3000";
-
-const MAX_BODY_SIZE = 2 * 1024 * 1024;
-
-// -----------------------------------------------------------------------------
-// Response helpers
-// -----------------------------------------------------------------------------
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": FRONTEND_ORIGIN,
-    "Access-Control-Allow-Headers":
-      "Content-Type, x-user-id, x-user-role",
-    "Access-Control-Allow-Methods":
-      "GET, POST, PATCH, DELETE, OPTIONS",
-  };
-}
-
-function sendJson(
-  response: http.ServerResponse,
-  status: number,
-  body: unknown
-) {
-  response.writeHead(status, {
-    ...corsHeaders(),
-    "Content-Type": "application/json; charset=utf-8",
-  });
-
-  response.end(JSON.stringify(body));
-}
-
-function sendError(
-  response: http.ServerResponse,
-  status: number,
-  code: string,
-  message: string
-) {
-  return sendJson(response, status, {
-    success: false,
-    error: {
-      code,
-      message,
-    },
-  });
-}
-
-// -----------------------------------------------------------------------------
-// Request helpers
-// -----------------------------------------------------------------------------
-
-async function readBody(
-  request: http.IncomingMessage
-): Promise<unknown> {
-  const contentLength = Number(request.headers["content-length"] || 0);
-
-  if (contentLength > MAX_BODY_SIZE) {
-    throw new Error("Request body is too large.");
-  }
-
-  const chunks: Buffer[] = [];
-  let totalSize = 0;
-
-  for await (const chunk of request) {
-    const buffer = Buffer.from(chunk);
-
-    totalSize += buffer.length;
-
-    if (totalSize > MAX_BODY_SIZE) {
-      throw new Error("Request body is too large.");
-    }
-
-    chunks.push(buffer);
-  }
-
-  if (!chunks.length) {
-    return {};
-  }
-
-  const rawBody = Buffer.concat(chunks).toString("utf8");
-
-  try {
-    return JSON.parse(rawBody);
-  } catch {
-    throw new Error("Invalid JSON body");
-  }
-}
-
-function positiveNumber(
-  value: string | null,
-  fallback: number,
-  max = 100
-) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return fallback;
-  }
-
-  return Math.min(Math.floor(parsed), max);
-}
-
-// -----------------------------------------------------------------------------
-// Error handling
-// -----------------------------------------------------------------------------
-
-function errorResponse(error: unknown): {
-  code: string;
-  message: string;
-} {
-  if (error instanceof z.ZodError) {
-    return {
-      code: "INVALID_INPUT",
-      message:
-        error.issues[0]?.message || "Invalid input",
-    };
-  }
-
-  if (error instanceof ProviderError) {
-    return {
-      code: error.code,
-      message: error.message,
-    };
-  }
-
-  if (error instanceof Error) {
-    return {
-      code: "REQUEST_FAILED",
-      message: error.message,
-    };
-  }
-
-  return {
-    code: "REQUEST_FAILED",
-    message: "Request failed",
-  };
-}
-
-function errorStatus(error: unknown): number {
-  if (error instanceof ProviderError) {
-    switch (error.code) {
-      case "INVALID_API_KEY":
-        return 401;
-
-      case "RATE_LIMIT":
-        return 429;
-
-      case "TIMEOUT":
-        return 504;
-
-      case "MODEL_UNAVAILABLE":
-        return 503;
-
-      case "MALFORMED_RESPONSE":
-        return 502;
-
-      case "API_FAILURE":
-        return 502;
-
-      default:
-        return 502;
-    }
-  }
-
-  if (error instanceof z.ZodError) {
-    return 400;
-  }
-
-  if (
-    error instanceof Error &&
-    (
-      error.message === "Invalid JSON body" ||
-      error.message === "Request body is too large."
-    )
-  ) {
-    return 400;
-  }
-
-  return 500;
-}
-
-// -----------------------------------------------------------------------------
-// Server
-// -----------------------------------------------------------------------------
-
-const server = http.createServer(
-  async (request, response) => {
-    // ---------------------------------------------------------------------------
-    // CORS
-    // ---------------------------------------------------------------------------
-
-    if (request.method === "OPTIONS") {
-      response.writeHead(204, corsHeaders());
-      response.end();
-      return;
-    }
-
-    // ---------------------------------------------------------------------------
-    // URL and authentication context
-    // ---------------------------------------------------------------------------
-
-    const url = new URL(
-      request.url || "/",
-      `http://${request.headers.host || "localhost"}`
-    );
-
-    const parts = url.pathname
-      .split("/")
-      .filter(Boolean);
-
-    const userId =
-      request.headers["x-user-id"]?.toString();
-
-    const suppliedUserRole =
-      request.headers["x-user-role"]?.toString();
-
-    // ---------------------------------------------------------------------------
-    // Authentication helpers
-    // ---------------------------------------------------------------------------
-
-    const requireAuth = (): boolean => {
-      if (!userId) {
-        sendError(
-          response,
-          401,
-          "UNAUTHORIZED",
-          "Authentication required. Please sign in."
-        );
-
-        return false;
-      }
-
-      return true;
-    };
-
-    const requireAdmin = async (): Promise<boolean> => {
-      if (!requireAuth()) {
-        return false;
-      }
-
-      /*
-       * Never rely only on a client-supplied role.
-       * The database role is authoritative.
-       */
-      const role = (
-        await getUserRole(userId!)
-      )?.toUpperCase();
-
-      if (role !== "ADMIN") {
-        sendError(
-          response,
-          403,
-          "FORBIDDEN",
-          "Admin access required."
-        );
-
-        return false;
-      }
-
-      return true;
-    };
-
-    const authorizeProject = async (
-      projectId: string
-    ) => {
-      if (!requireAuth()) {
-        return undefined;
-      }
-
-      const project = await getProject(
-        projectId,
-        userId,
-        suppliedUserRole
-      );
-
-      if (!project) {
-        sendError(
-          response,
-          404,
-          "NOT_FOUND",
-          "Project not found"
-        );
-
-        return undefined;
-      }
-
-      return project;
-    };
-
-    try {
-      // -------------------------------------------------------------------------
-      // Health
-      // -------------------------------------------------------------------------
-
-      if (
-        request.method === "GET" &&
-        url.pathname === "/api/health"
-      ) {
-        return sendJson(response, 200, {
-          success: true,
-          data: {
-            service: "sitecraft-backend",
-            provider: provider.config.provider,
-            model: provider.config.model,
-            configured: provider.config.configured,
-            message:
-              provider.config.message ||
-              "SiteCraft AI engine operational.",
-          },
-        });
-      }
-
-      // -------------------------------------------------------------------------
-      // Configuration status
-      // -------------------------------------------------------------------------
-
-      if (
-        request.method === "GET" &&
-        url.pathname === "/api/config/status"
-      ) {
-        return sendJson(response, 200, {
-          success: true,
-          data: {
-            gemini: Boolean(
-              process.env.GEMINI_API_KEY
-            ),
-
-            openai: Boolean(
-              process.env.OPENAI_API_KEY
-            ),
-
-            nvidia: Boolean(
-              process.env.NVIDIA_API_KEY
-            ),
-
-            bynara: Boolean(
-              process.env.BYNARA_API_KEY
-            ),
-
-            database: Boolean(
-              process.env.DATABASE_URL
-            ),
-
-            auth: Boolean(
-              process.env.AUTH_SECRET
-            ),
-
-            googleOAuth: Boolean(
-              process.env.GOOGLE_CLIENT_ID &&
-              process.env.GOOGLE_CLIENT_SECRET
-            ),
-
-            unsplash: Boolean(
-              process.env.UNSPLASH_ACCESS_KEY
-            ),
-
-            vercel: Boolean(
-              process.env.VERCEL_TOKEN
-            ),
-
-            activeProvider:
-              provider.config.provider,
-
-            activeModel:
-              provider.config.model,
-          },
-        });
-      }
-
-      // =========================================================================
-      // ADMIN API
-      // =========================================================================
-
-      if (
-        parts[0] === "api" &&
-        parts[1] === "admin"
-      ) {
-        if (!(await requireAdmin())) {
-          return;
-        }
-
-        const subRoute = parts[2];
-        const resourceId = parts[3];
-        const action = parts[4];
-
-        // -----------------------------------------------------------------------
-        // Admin stats
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "stats" &&
-          request.method === "GET"
-        ) {
-          const dateRange =
-            url.searchParams.get("dateRange") ||
-            undefined;
-
-          const stats =
-            await getAdminStats(dateRange);
-
-          return sendJson(response, 200, {
-            success: true,
-            data: stats,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Recent activity
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "activity" &&
-          request.method === "GET"
-        ) {
-          const limit = positiveNumber(
-            url.searchParams.get("limit"),
-            10,
-            100
-          );
-
-          const activity =
-            await getAdminRecentActivity(limit);
-
-          return sendJson(response, 200, {
-            success: true,
-            data: activity,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Audit logs
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "audit-logs" &&
-          request.method === "GET"
-        ) {
-          const page = positiveNumber(
-            url.searchParams.get("page"),
-            1
-          );
-
-          const pageSize = positiveNumber(
-            url.searchParams.get("pageSize"),
-            20,
-            100
-          );
-
-          const logs =
-            await listAdminAuditLogs({
-              page,
-              pageSize,
-            });
-
-          return sendJson(response, 200, {
-            success: true,
-            data: logs,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Users
-        // -----------------------------------------------------------------------
-
-        if (subRoute === "users") {
-          if (
-            !resourceId &&
-            request.method === "GET"
-          ) {
-            const page = positiveNumber(
-              url.searchParams.get("page"),
-              1
-            );
-
-            const pageSize = positiveNumber(
-              url.searchParams.get("pageSize"),
-              20,
-              100
-            );
-
-            const search =
-              url.searchParams.get("search") ||
-              undefined;
-
-            const role =
-              url.searchParams.get("role") ||
-              undefined;
-
-            const dateRange =
-              url.searchParams.get("dateRange") ||
-              undefined;
-
-            const users =
-              await listAdminUsers({
-                page,
-                pageSize,
-                search,
-                role,
-                dateRange,
-              });
-
-            return sendJson(response, 200, {
-              success: true,
-              data: users,
-            });
-          }
-
-          if (
-            resourceId &&
-            !action &&
-            request.method === "GET"
-          ) {
-            const user =
-              await getAdminUserDetail(
-                resourceId
-              );
-
-            if (!user) {
-              return sendError(
-                response,
-                404,
-                "NOT_FOUND",
-                "User not found"
-              );
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: user,
-            });
-          }
-
-          if (
-            resourceId &&
-            action === "role" &&
-            request.method === "PATCH"
-          ) {
-            const body =
-              (await readBody(request)) as {
-                role?: "USER" | "ADMIN";
-              };
-
-            if (
-              !body?.role ||
-              !["USER", "ADMIN"].includes(
-                body.role
-              )
-            ) {
-              return sendError(
-                response,
-                400,
-                "INVALID_ROLE",
-                "Role must be USER or ADMIN"
-              );
-            }
-
-            const result =
-              await updateUserRole(
-                userId!,
-                resourceId,
-                body.role
-              );
-
-            if (!result.success) {
-              return sendError(
-                response,
-                400,
-                "UPDATE_FAILED",
-                result.error ||
-                  "Failed to update role"
-              );
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: result.user,
-            });
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // Projects
-        // -----------------------------------------------------------------------
-
-        if (subRoute === "projects") {
-          if (
-            !resourceId &&
-            request.method === "GET"
-          ) {
-            const page = positiveNumber(
-              url.searchParams.get("page"),
-              1
-            );
-
-            const pageSize = positiveNumber(
-              url.searchParams.get("pageSize"),
-              20,
-              100
-            );
-
-            const search =
-              url.searchParams.get("search") ||
-              undefined;
-
-            const status =
-              url.searchParams.get("status") ||
-              undefined;
-
-            const framework =
-              url.searchParams.get("framework") ||
-              undefined;
-
-            const uId =
-              url.searchParams.get("userId") ||
-              undefined;
-
-            const dateRange =
-              url.searchParams.get("dateRange") ||
-              undefined;
-
-            const projects =
-              await listAdminProjects({
-                page,
-                pageSize,
-                search,
-                status,
-                framework,
-                userId: uId,
-                dateRange,
-              });
-
-            return sendJson(response, 200, {
-              success: true,
-              data: projects,
-            });
-          }
-
-          if (
-            resourceId &&
-            request.method === "GET"
-          ) {
-            const project =
-              await getAdminProjectDetail(
-                resourceId
-              );
-
-            if (!project) {
-              return sendError(
-                response,
-                404,
-                "NOT_FOUND",
-                "Project not found"
-              );
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: project,
-            });
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // Websites
-        // -----------------------------------------------------------------------
-
-        if (subRoute === "websites") {
-          if (
-            !resourceId &&
-            request.method === "GET"
-          ) {
-            const page = positiveNumber(
-              url.searchParams.get("page"),
-              1
-            );
-
-            const pageSize = positiveNumber(
-              url.searchParams.get("pageSize"),
-              20,
-              100
-            );
-
-            const search =
-              url.searchParams.get("search") ||
-              undefined;
-
-            const theme =
-              url.searchParams.get("theme") ||
-              undefined;
-
-            const websites =
-              await listAdminWebsites({
-                page,
-                pageSize,
-                search,
-                theme,
-              });
-
-            return sendJson(response, 200, {
-              success: true,
-              data: websites,
-            });
-          }
-
-          if (
-            resourceId &&
-            request.method === "GET"
-          ) {
-            const website =
-              await getAdminWebsiteDetail(
-                resourceId
-              );
-
-            if (!website) {
-              return sendError(
-                response,
-                404,
-                "NOT_FOUND",
-                "Website not found"
-              );
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: website,
-            });
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // Generations
-        // -----------------------------------------------------------------------
-
-        if (subRoute === "generations") {
-          if (
-            !resourceId &&
-            request.method === "GET"
-          ) {
-            const page = positiveNumber(
-              url.searchParams.get("page"),
-              1
-            );
-
-            const pageSize = positiveNumber(
-              url.searchParams.get("pageSize"),
-              20,
-              100
-            );
-
-            const search =
-              url.searchParams.get("search") ||
-              undefined;
-
-            const agent =
-              url.searchParams.get("agent") ||
-              undefined;
-
-            const status =
-              url.searchParams.get("status") ||
-              undefined;
-
-            const projectId =
-              url.searchParams.get("projectId") ||
-              undefined;
-
-            const uId =
-              url.searchParams.get("userId") ||
-              undefined;
-
-            const dateRange =
-              url.searchParams.get("dateRange") ||
-              undefined;
-
-            const generations =
-              await listAdminGenerations({
-                page,
-                pageSize,
-                search,
-                agent,
-                status,
-                projectId,
-                userId: uId,
-                dateRange,
-              });
-
-            return sendJson(response, 200, {
-              success: true,
-              data: generations,
-            });
-          }
-
-          if (
-            resourceId &&
-            request.method === "GET"
-          ) {
-            const generation =
-              await getAdminGenerationDetail(
-                resourceId
-              );
-
-            if (!generation) {
-              return sendError(
-                response,
-                404,
-                "NOT_FOUND",
-                "Generation not found"
-              );
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: generation,
-            });
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // AI usage
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "usage" &&
-          request.method === "GET"
-        ) {
-          const page = positiveNumber(
-            url.searchParams.get("page"),
-            1
-          );
-
-          const pageSize = positiveNumber(
-            url.searchParams.get("pageSize"),
-            20,
-            100
-          );
-
-          const pProvider =
-            url.searchParams.get("provider") ||
-            undefined;
-
-          const model =
-            url.searchParams.get("model") ||
-            undefined;
-
-          const uId =
-            url.searchParams.get("userId") ||
-            undefined;
-
-          const dateRange =
-            url.searchParams.get("dateRange") ||
-            undefined;
-
-          const usage =
-            await getAdminUsageAnalytics({
-              page,
-              pageSize,
-              provider: pProvider,
-              model,
-              userId: uId,
-              dateRange,
-            });
-
-          return sendJson(response, 200, {
-            success: true,
-            data: usage,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Deployments
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "deployments" &&
-          request.method === "GET"
-        ) {
-          const page = positiveNumber(
-            url.searchParams.get("page"),
-            1
-          );
-
-          const pageSize = positiveNumber(
-            url.searchParams.get("pageSize"),
-            20,
-            100
-          );
-
-          const pProvider =
-            url.searchParams.get("provider") ||
-            undefined;
-
-          const status =
-            url.searchParams.get("status") ||
-            undefined;
-
-          const search =
-            url.searchParams.get("search") ||
-            undefined;
-
-          const deployments =
-            await listAdminDeployments({
-              page,
-              pageSize,
-              provider: pProvider,
-              status,
-              search,
-            });
-
-          return sendJson(response, 200, {
-            success: true,
-            data: deployments,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Chats
-        // -----------------------------------------------------------------------
-
-        if (
-          subRoute === "chats" &&
-          request.method === "GET"
-        ) {
-          const page = positiveNumber(
-            url.searchParams.get("page"),
-            1
-          );
-
-          const pageSize = positiveNumber(
-            url.searchParams.get("pageSize"),
-            20,
-            100
-          );
-
-          const search =
-            url.searchParams.get("search") ||
-            undefined;
-
-          const projectId =
-            url.searchParams.get("projectId") ||
-            undefined;
-
-          const chats =
-            await listAdminChats({
-              page,
-              pageSize,
-              search,
-              projectId,
-            });
-
-          return sendJson(response, 200, {
-            success: true,
-            data: chats,
-          });
-        }
-
-        return sendError(
-          response,
-          404,
-          "NOT_FOUND",
-          "Admin route not found"
-        );
-      }
-
-      // =========================================================================
-      // STANDARD USER API
-      // =========================================================================
-
-      // -------------------------------------------------------------------------
-      // List projects
-      // -------------------------------------------------------------------------
-
-      if (
-        request.method === "GET" &&
-        url.pathname === "/api/projects"
-      ) {
-        if (!requireAuth()) {
-          return;
-        }
-
-        const projects =
-          await listProjects(
-            userId!,
-            suppliedUserRole
-          );
-
-        return sendJson(response, 200, {
-          success: true,
-          data: projects,
-        });
-      }
-
-      // -------------------------------------------------------------------------
-      // Create project
-      // -------------------------------------------------------------------------
-
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/projects"
-      ) {
-        if (!requireAuth()) {
-          return;
-        }
-
-        const body =
-          createProjectSchema.parse(
-            await readBody(request)
-          );
-
-        const project =
-          await createProject({
-            userId: userId!,
-            name: body.name,
-            description: body.description,
-            initialPrompt: body.initialPrompt,
-            framework: body.framework,
-          });
-
-        return sendJson(response, 201, {
-          success: true,
-          data: project,
-        });
-      }
-
-      // =========================================================================
-      // PROJECT ROUTES
-      // =========================================================================
-
-      if (
-        parts[0] === "api" &&
-        parts[1] === "projects" &&
-        parts[2]
-      ) {
-        const projectId = parts[2];
-        const action = parts[3];
-
-        // -----------------------------------------------------------------------
-        // Project root
-        // -----------------------------------------------------------------------
-
-        if (!action) {
-          if (request.method === "GET") {
-            const project =
-              await authorizeProject(projectId);
-
-            if (!project) {
-              return;
-            }
-
-            return sendJson(response, 200, {
-              success: true,
-              data: project,
-            });
-          }
-
-          if (request.method === "DELETE") {
-            const project =
-              await authorizeProject(projectId);
-
-            if (!project) {
-              return;
-            }
-
-            await deleteProject(projectId);
-
-            return sendJson(response, 200, {
-              success: true,
-              data: {
-                id: projectId,
-              },
-            });
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // Generate website
-        // -----------------------------------------------------------------------
-
-        if (
-          request.method === "POST" &&
-          action === "generate"
-        ) {
-          const project =
-            await authorizeProject(projectId);
-
-          if (!project) {
-            return;
-          }
-
-          const body =
-            promptSchema.parse(
-              await readBody(request)
-            );
-
-          const result =
-            await generateProject(
-              projectId,
-              body.prompt
-            );
-
-          /*
-           * Use the provider/model actually used by the
-           * generation pipeline instead of hard-coding Gemini.
-           */
-          await recordApiUsage(
-            userId!,
-            result.provider ||
-              provider.config.provider,
-            provider.config.model,
-            1250
-          );
-
-          return sendJson(response, 200, {
-            success: true,
-            data: result,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Revise website
-        // -----------------------------------------------------------------------
-
-        if (
-          request.method === "POST" &&
-          action === "revise"
-        ) {
-          const project =
-            await authorizeProject(projectId);
-
-          if (!project) {
-            return;
-          }
-
-          const body =
-            promptSchema.parse(
-              await readBody(request)
-            );
-
-          const result =
-            await reviseProject(
-              projectId,
-              body.prompt
-            );
-
-          await recordApiUsage(
-            userId!,
-            provider.config.provider,
-            provider.config.model,
-            650
-          );
-
-          return sendJson(response, 200, {
-            success: true,
-            data: result,
-          });
-        }
-
-        // -----------------------------------------------------------------------
-        // Export website
-        // -----------------------------------------------------------------------
-
-        if (
-          request.method === "GET" &&
-          action === "export"
-        ) {
-          const project =
-            await authorizeProject(projectId);
-
-          if (!project) {
-            return;
-          }
-
-          const website =
-            project.websites[0];
-
-          if (!website) {
-            return sendError(
-              response,
-              400,
-              "NO_WEBSITE",
-              "Generate a website first"
-            );
-          }
-
-          const zip = new JSZip();
-
-          for (
-            const file of website.generatedCode.files
-          ) {
-            zip.file(
-              file.path,
-              file.content
-            );
-          }
-
-          zip.file(
-            "dist/index.html",
-            website.generatedCode.html
-          );
-
-          const archive =
-            await zip.generateAsync({
-              type: "nodebuffer",
-            });
-
-          const safeProjectName =
-            project.name
-              .toLowerCase()
-              .replace(
-                /[^a-z0-9]+/g,
-                "-"
-              )
-              .replace(
-                /^-+|-+$/g,
-                ""
-              ) || "sitecraft-site";
-
-          response.writeHead(200, {
-            ...corsHeaders(),
-            "Content-Type":
-              "application/zip",
-            "Content-Disposition":
-              `attachment; filename="${safeProjectName}-site.zip"`,
-          });
-
-          response.end(archive);
-          return;
-        }
-
-        // -----------------------------------------------------------------------
-        // Deploy website
-        // -----------------------------------------------------------------------
-
-        if (
-          request.method === "POST" &&
-          action === "deploy"
-        ) {
-          const project =
-            await authorizeProject(projectId);
-
-          if (!project) {
-            return;
-          }
-
-          const body =
-            (await readBody(request)) as {
-              provider?: string;
-            };
-
-          const deployProvider =
-            body.provider || "vercel";
-
-          const latestWebsite =
-            project.websites[0];
-
-          if (!latestWebsite) {
-            return sendError(
-              response,
-              400,
-              "NO_WEBSITE",
-              "Cannot deploy a project without generated website code."
-            );
-          }
-
-          let deployResult;
-
-          if (
-            deployProvider === "netlify"
-          ) {
-            deployResult =
-              await deployToNetlify(
-                project.name,
-                latestWebsite.generatedCode
-              );
-          } else if (
-            deployProvider === "vercel"
-          ) {
-            deployResult =
-              await deployToVercel(
-                project.name,
-                latestWebsite.generatedCode
-              );
-          } else {
-            return sendError(
-              response,
-              400,
-              "INVALID_DEPLOY_PROVIDER",
-              "Deployment provider must be vercel or netlify."
-            );
-          }
-
-          if (deployResult.success) {
-            await recordDeployment(
-              projectId,
-              {
-                provider:
-                  deployResult.provider,
-                deploymentUrl:
-                  deployResult.deploymentUrl,
-                deploymentId:
-                  deployResult.deploymentId,
-                status:
-                  deployResult.status,
-              }
-            );
-          }
-
-          return sendJson(
-            response,
-            deployResult.success
-              ? 200
-              : 400,
-            {
-              success:
-                deployResult.success,
-
-              data: deployResult,
-
-              ...(deployResult.error
-                ? {
-                    error: {
-                      code:
-                        "DEPLOYMENT_FAILED",
-                      message:
-                        deployResult.error,
-                    },
-                  }
-                : {}),
-            }
-          );
-        }
-      }
-
-      // -------------------------------------------------------------------------
-      // Unknown route
-      // -------------------------------------------------------------------------
-
-      return sendError(
-        response,
-        404,
-        "NOT_FOUND",
-        "Route not found"
-      );
-    } catch (error) {
-      const failure =
-        errorResponse(error);
-
-      console.error(
-        JSON.stringify({
-          event: "request_failed",
-          method: request.method,
-          path: url.pathname,
-          error: failure,
-
-          ...(error instanceof ProviderError
-            ? {
-                provider:
-                  error.provider,
-                model:
-                  error.model,
-                status:
-                  error.status,
-              }
-            : {}),
-        })
-      );
-
-      return sendJson(
-        response,
-        errorStatus(error),
-        {
-          success: false,
-          error: failure,
-        }
-      );
-    }
-  }
-);
-
-// -----------------------------------------------------------------------------
-// Server startup
-// -----------------------------------------------------------------------------
-
-server.listen(port, () => {
-  console.log(
-    JSON.stringify({
-      event: "backend_started",
-      port,
-      activeProvider:
-        provider.config.provider,
-      model:
-        provider.config.model,
-      configured:
-        provider.config.configured,
-    })
-  );
-});
-
-// -----------------------------------------------------------------------------
-// Graceful shutdown
-// -----------------------------------------------------------------------------
-
-let shuttingDown = false;
-
-const handleShutdown = () => {
-  if (shuttingDown) {
-    return;
-  }
-
-  shuttingDown = true;
-
-  console.log(
-    JSON.stringify({
-      event: "backend_shutdown",
-    })
-  );
-
-  server.close(() => {
-    process.exit(0);
-  });
-
-  setTimeout(() => {
-    process.exit(1);
-  }, 1000).unref();
+const NVIDIA_API_KEY = "super-secret-nvidia-key";
+const NVIDIA_MODEL = "working-model";
+const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+
+type FetchCall = {
+  input: RequestInfo | URL;
+  init?: RequestInit;
 };
 
-process.on(
-  "SIGINT",
-  handleShutdown
+function mockFetch(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+): typeof fetch {
+  return (async () => {
+    return new Response(
+      typeof body === "string"
+        ? body
+        : JSON.stringify(body),
+      {
+        status,
+        headers,
+      }
+    );
+  }) as typeof fetch;
+}
+
+async function withMockedFetch<T>(
+  fetchMock: typeof fetch,
+  callback: () => Promise<T>
+): Promise<T> {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = fetchMock;
+
+  try {
+    return await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function withNvidiaEnvironment<T>(
+  callback: () => Promise<T>
+): Promise<T> {
+  const originalEnv = { ...process.env };
+
+  process.env.NVIDIA_API_KEY = NVIDIA_API_KEY;
+  process.env.NVIDIA_MODEL = NVIDIA_MODEL;
+  process.env.NVIDIA_BASE_URL = NVIDIA_BASE_URL;
+
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.BYNARA_API_KEY;
+
+  try {
+    return await callback();
+  } finally {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
+
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+async function assertProviderError(
+  action: () => Promise<unknown>,
+  expectedCode: string,
+  expectedModel = NVIDIA_MODEL
+) {
+  await assert.rejects(
+    action,
+    (error: unknown) => {
+      assert.ok(
+        error instanceof ProviderError,
+        "Expected ProviderError"
+      );
+
+      assert.equal(
+        error.code,
+        expectedCode,
+        `Expected error code ${expectedCode}`
+      );
+
+      assert.equal(
+        error.model,
+        expectedModel,
+        "ProviderError should contain the requested model"
+      );
+
+      assert.equal(
+        error.provider,
+        "nvidia",
+        "ProviderError should identify NVIDIA as the provider"
+      );
+
+      assert.ok(
+        typeof error.message === "string",
+        "ProviderError should contain a message"
+      );
+
+      assert.ok(
+        error.message.length > 0,
+        "ProviderError message should not be empty"
+      );
+
+      return true;
+    }
+  );
+}
+
+function createValidResponse(content = '{"ok":true}') {
+  return {
+    choices: [
+      {
+        message: {
+          content,
+        },
+      },
+    ],
+  };
+}
+
+test(
+  "throws MODEL_UNAVAILABLE when NVIDIA model is unavailable",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: "The requested model is not available",
+            },
+          },
+          404
+        ),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MODEL_UNAVAILABLE"
+          );
+        }
+      );
+    });
+  }
 );
 
-process.on(
-  "SIGTERM",
-  handleShutdown
+test(
+  "includes useful model guidance when NVIDIA model is unavailable",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: "Model not found",
+            },
+          },
+          404
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(error instanceof ProviderError);
+
+              assert.equal(
+                error.code,
+                "MODEL_UNAVAILABLE"
+              );
+
+              assert.match(
+                error.message,
+                /NVIDIA_MODEL/i,
+                "Error should tell the user how to configure the NVIDIA model"
+              );
+
+              assert.match(
+                error.message,
+                new RegExp(NVIDIA_MODEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
 );
-```
+
+test(
+  "throws MALFORMED_RESPONSE when NVIDIA returns invalid JSON",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          "{ this is not valid JSON",
+          200,
+          {
+            "Content-Type": "application/json",
+          }
+        ),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when choices is missing",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          id: "test-response",
+          object: "chat.completion",
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when choices is null",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          choices: null,
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when choices is empty",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          choices: [],
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when message is missing",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          choices: [
+            {},
+          ],
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when message content is missing",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          choices: [
+            {
+              message: {},
+            },
+          ],
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when message content is empty",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch({
+          choices: [
+            {
+              message: {
+                content: "",
+              },
+            },
+          ],
+        }),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws an appropriate ProviderError for a server failure",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: "Internal server error",
+            },
+          },
+          500
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(
+                error instanceof ProviderError,
+                "Server failure should produce ProviderError"
+              );
+
+              assert.equal(
+                error.provider,
+                "nvidia"
+              );
+
+              assert.equal(
+                error.model,
+                NVIDIA_MODEL
+              );
+
+              assert.ok(
+                typeof error.message === "string"
+              );
+
+              assert.ok(
+                error.message.length > 0
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws an appropriate ProviderError for rate limiting",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: "Too many requests",
+            },
+          },
+          429
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(
+                error instanceof ProviderError,
+                "Rate-limit failure should produce ProviderError"
+              );
+
+              assert.equal(
+                error.provider,
+                "nvidia"
+              );
+
+              assert.equal(
+                error.model,
+                NVIDIA_MODEL
+              );
+
+              assert.ok(
+                typeof error.message === "string"
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws an appropriate ProviderError for invalid API key",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: "Invalid API key",
+            },
+          },
+          401
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(
+                error instanceof ProviderError,
+                "Authentication failure should produce ProviderError"
+              );
+
+              assert.equal(
+                error.provider,
+                "nvidia"
+              );
+
+              assert.equal(
+                error.model,
+                NVIDIA_MODEL
+              );
+
+              assert.ok(
+                typeof error.message === "string"
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "handles network failure without leaking the API key",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      const networkError = new Error(
+        "connect ECONNREFUSED"
+      );
+
+      await withMockedFetch(
+        (async () => {
+          throw networkError;
+        }) as typeof fetch,
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(
+                error instanceof Error,
+                "Network failure should produce an Error"
+              );
+
+              assert.ok(
+                !error.message.includes(
+                  NVIDIA_API_KEY
+                ),
+                "API key must never appear in the error message"
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "never exposes the NVIDIA API key in provider errors",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            error: {
+              message: `Authentication failed for ${NVIDIA_API_KEY}`,
+            },
+          },
+          401
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Generate a test response",
+              "code"
+            ),
+            (error: unknown) => {
+              assert.ok(
+                error instanceof Error
+              );
+
+              assert.ok(
+                !error.message.includes(
+                  NVIDIA_API_KEY
+                ),
+                "Provider error must not expose the API key"
+              );
+
+              return true;
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "sends a correct NVIDIA request",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      const calls: FetchCall[] = [];
+
+      await withMockedFetch(
+        (async (
+          input: RequestInfo | URL,
+          init?: RequestInit
+        ) => {
+          calls.push({
+            input,
+            init,
+          });
+
+          return new Response(
+            JSON.stringify(
+              createValidResponse(
+                JSON.stringify({
+                  success: true,
+                })
+              )
+            ),
+            {
+              status: 200,
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+            }
+          );
+        }) as typeof fetch,
+        async () => {
+          const result =
+            await provider.generateJson<{
+              success: boolean;
+            }>(
+              "Generate a test response",
+              "code"
+            );
+
+          assert.deepEqual(
+            result,
+            {
+              success: true,
+            }
+          );
+        }
+      );
+
+      assert.equal(
+        calls.length,
+        1,
+        "Exactly one NVIDIA request should be made"
+      );
+
+      const request = calls[0];
+
+      assert.ok(
+        request,
+        "NVIDIA request should exist"
+      );
+
+      assert.equal(
+        String(request.input),
+        `${NVIDIA_BASE_URL}/chat/completions`
+      );
+
+      assert.equal(
+        request.init?.method,
+        "POST"
+      );
+
+      assert.ok(
+        typeof request.init?.body === "string",
+        "Request should contain a JSON body"
+      );
+
+      const body = JSON.parse(
+        request.init!.body as string
+      );
+
+      assert.equal(
+        body.model,
+        NVIDIA_MODEL
+      );
+
+      assert.ok(
+        Array.isArray(body.messages),
+        "Request should contain messages"
+      );
+
+      assert.ok(
+        body.messages.length > 0,
+        "Request should contain at least one message"
+      );
+
+      assert.ok(
+        body.messages.some(
+          (message: {
+            role?: string;
+            content?: string;
+          }) =>
+            message.role === "user"
+        ),
+        "Request should contain a user message"
+      );
+
+      const headers = new Headers(
+        request.init?.headers
+      );
+
+      assert.equal(
+        headers.get("Content-Type"),
+        "application/json"
+      );
+
+      assert.equal(
+        headers.get("Authorization"),
+        `Bearer ${NVIDIA_API_KEY}`
+      );
+    });
+  }
+);
+
+test(
+  "successfully parses a valid NVIDIA JSON response",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          createValidResponse(
+            JSON.stringify({
+              message: "success",
+              value: 42,
+            })
+          )
+        ),
+        async () => {
+          const result =
+            await provider.generateJson<{
+              message: string;
+              value: number;
+            }>(
+              "Return JSON",
+              "code"
+            );
+
+          assert.deepEqual(
+            result,
+            {
+              message: "success",
+              value: 42,
+            }
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "restores fetch after a successful request",
+  async () => {
+    const originalFetch = globalThis.fetch;
+
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          createValidResponse(
+            JSON.stringify({
+              ok: true,
+            })
+          )
+        ),
+        async () => {
+          await provider.generateJson(
+            "Return JSON",
+            "code"
+          );
+
+          assert.notEqual(
+            globalThis.fetch,
+            originalFetch,
+            "Mock fetch should be active inside the test"
+          );
+        }
+      );
+    });
+
+    assert.equal(
+      globalThis.fetch,
+      originalFetch,
+      "Original fetch should be restored after the test"
+    );
+  }
+);
+
+test(
+  "restores fetch after a failed request",
+  async () => {
+    const originalFetch = globalThis.fetch;
+
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(
+          {
+            choices: [],
+          }
+        ),
+        async () => {
+          await assert.rejects(
+            provider.generateJson(
+              "Return JSON",
+              "code"
+            )
+          );
+
+          assert.notEqual(
+            globalThis.fetch,
+            originalFetch,
+            "Mock fetch should be active inside the test"
+          );
+        }
+      );
+    });
+
+    assert.equal(
+      globalThis.fetch,
+      originalFetch,
+      "Original fetch should be restored after failure"
+    );
+  }
+);
