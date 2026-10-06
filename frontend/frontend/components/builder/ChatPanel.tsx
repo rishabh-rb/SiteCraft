@@ -48,16 +48,19 @@ const MAX_MESSAGE_LENGTH = 1000;
 const suggestions = [
   {
     label: "Modern colors",
+    description: "Refresh the color palette",
     text: "Make the website color palette more modern, balanced, and visually appealing.",
     icon: Palette,
   },
   {
     label: "Add pricing",
+    description: "Create a pricing section",
     text: "Add a clean, modern, and responsive pricing section to the website.",
     icon: LayoutTemplate,
   },
   {
     label: "Change font",
+    description: "Improve typography",
     text: "Change the website typography to a clean, modern sans-serif font.",
     icon: Type,
   },
@@ -76,13 +79,11 @@ export function ChatPanel({
   disabled,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const canEdit = !disabled && !working;
-
   const trimmedText = chatText.trim();
 
   const canSubmit =
@@ -127,7 +128,7 @@ export function ChatPanel({
   }, [chatText]);
 
   /* =======================================================
-     FOCUS INPUT WHEN EDITING BECOMES AVAILABLE
+     INITIAL FOCUS
   ======================================================= */
 
   useEffect(() => {
@@ -140,42 +141,22 @@ export function ChatPanel({
 
   /* =======================================================
      KEYBOARD HANDLING
-     
-     Enter       -> Submit
-     Shift+Enter -> New line
-     Ctrl+Enter  -> Submit
-     Cmd+Enter   -> Submit
   ======================================================= */
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>
   ) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      if (canSubmit) {
-        event.preventDefault();
-
-        const form = event.currentTarget.form;
-
-        if (form) {
-          form.requestSubmit();
-        }
-      }
-
-      return;
-    }
-
-    if (
-      (event.ctrlKey || event.metaKey) &&
+    const isSubmitShortcut =
       event.key === "Enter" &&
-      canSubmit
-    ) {
+      (event.ctrlKey || event.metaKey);
+
+    const isSimpleEnter =
+      event.key === "Enter" && !event.shiftKey;
+
+    if ((isSimpleEnter || isSubmitShortcut) && canSubmit) {
       event.preventDefault();
 
-      const form = event.currentTarget.form;
-
-      if (form) {
-        form.requestSubmit();
-      }
+      event.currentTarget.form?.requestSubmit();
     }
   };
 
@@ -222,18 +203,17 @@ export function ChatPanel({
         setCopiedId(null);
       }, 1600);
     } catch {
-      // Clipboard may be unavailable in some environments.
+      // Clipboard unavailable.
     }
   };
 
   /* =======================================================
-     SUBMIT WRAPPER
-     
-     Clears input only when the form is successfully submitted
-     by the parent.
+     SUBMIT
   ======================================================= */
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (
+    event: FormEvent<HTMLFormElement>
+  ) => {
     if (!canSubmit) {
       event.preventDefault();
       return;
@@ -253,7 +233,6 @@ export function ChatPanel({
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          {/* Icon */}
           <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal/10">
             <MessageSquarePlus className="h-5 w-5 text-teal" />
 
@@ -265,7 +244,6 @@ export function ChatPanel({
             )}
           </div>
 
-          {/* Title */}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-lg font-black tracking-tight text-ink">
@@ -285,7 +263,6 @@ export function ChatPanel({
           </div>
         </div>
 
-        {/* Edit Counter */}
         {messages.length > 0 && (
           <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5">
             <CheckCircle2 className="h-3 w-3 text-teal" />
@@ -303,23 +280,18 @@ export function ChatPanel({
       ================================================== */}
 
       <div
-        ref={messagesContainerRef}
         className="panel-scroll max-h-80 min-h-32 overflow-y-auto rounded-2xl border border-line bg-paper/50 p-3"
         aria-live="polite"
         aria-label="Edit conversation"
       >
         {messages.length === 0 ? (
-          /* ------------------------------------------------
-             EMPTY STATE
-          ------------------------------------------------- */
-
           <div className="flex min-h-28 flex-col items-center justify-center px-5 py-6 text-center">
             <div className="relative mb-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal/10">
                 <WandSparkles className="h-5 w-5 text-teal" />
               </div>
 
-              <span className="absolute inset-0 rounded-full border border-teal/10 animate-pulse" />
+              <span className="absolute inset-0 animate-pulse rounded-full border border-teal/10" />
             </div>
 
             <p className="text-xs font-bold text-ink/80">
@@ -327,8 +299,8 @@ export function ChatPanel({
             </p>
 
             <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-ink/45">
-              Tell me what you want to change. You can update
-              colors, text, layouts, sections, typography, and more.
+              Tell me what you want to change. Update colors,
+              text, layouts, sections, typography, and more.
             </p>
 
             <div className="mt-3 flex items-center gap-1.5 rounded-full bg-teal/5 px-2.5 py-1">
@@ -349,9 +321,7 @@ export function ChatPanel({
                 <div
                   key={message.id}
                   className={`group flex gap-2.5 ${
-                    isUser
-                      ? "flex-row-reverse"
-                      : "flex-row"
+                    isUser ? "flex-row-reverse" : "flex-row"
                   }`}
                 >
                   {/* Avatar */}
@@ -361,7 +331,6 @@ export function ChatPanel({
                         ? "bg-accent/10 text-accent"
                         : "bg-teal/10 text-teal"
                     }`}
-                    aria-hidden="true"
                   >
                     {isUser ? (
                       <User className="h-3.5 w-3.5" />
@@ -370,23 +339,19 @@ export function ChatPanel({
                     )}
                   </div>
 
-                  {/* Message Area */}
+                  {/* Message */}
                   <div
                     className={`flex max-w-[84%] flex-col ${
-                      isUser
-                        ? "items-end"
-                        : "items-start"
+                      isUser ? "items-end" : "items-start"
                     }`}
                   >
-                    {/* Message Bubble */}
                     <div
-                      className={`rounded-2xl border px-3 py-2.5 shadow-sm transition-all duration-200 group-hover:shadow-md ${
+                      className={`rounded-2xl border px-3 py-2.5 shadow-sm transition-shadow duration-200 group-hover:shadow-md ${
                         isUser
                           ? "rounded-tr-md border-accent/20 bg-accent/[0.06]"
                           : "rounded-tl-md border-line bg-white"
                       }`}
                     >
-                      {/* Role */}
                       <div
                         className={`mb-1.5 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider ${
                           isUser
@@ -407,13 +372,11 @@ export function ChatPanel({
                         )}
                       </div>
 
-                      {/* Content */}
                       <p className="whitespace-pre-wrap break-words text-xs leading-5 text-ink">
                         {message.content}
                       </p>
                     </div>
 
-                    {/* Message Actions */}
                     {!isUser && (
                       <button
                         type="button"
@@ -448,10 +411,7 @@ export function ChatPanel({
               );
             })}
 
-            {/* ==================================================
-                AI THINKING
-            ================================================== */}
-
+            {/* AI THINKING */}
             {working && (
               <div className="flex gap-2.5">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal/10">
@@ -464,16 +424,12 @@ export function ChatPanel({
 
                     <span
                       className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-                      style={{
-                        animationDelay: "120ms",
-                      }}
+                      style={{ animationDelay: "120ms" }}
                     />
 
                     <span
                       className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-                      style={{
-                        animationDelay: "240ms",
-                      }}
+                      style={{ animationDelay: "240ms" }}
                     />
 
                     <span className="ml-1 text-[9px] font-medium text-ink/40">
@@ -490,17 +446,10 @@ export function ChatPanel({
       </div>
 
       {/* ==================================================
-          INPUT FORM
+          INPUT
       ================================================== */}
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-2.5"
-      >
-        {/* ==================================================
-            INPUT CONTAINER
-        ================================================== */}
-
+      <form onSubmit={handleSubmit} className="space-y-2.5">
         <div
           className={`relative overflow-hidden rounded-2xl border bg-paper transition-all duration-200 ${
             canEdit
@@ -526,9 +475,8 @@ export function ChatPanel({
             className="block min-h-[72px] w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-12 pt-3.5 pr-14 text-sm leading-5 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
           />
 
-          {/* Bottom Input Bar */}
+          {/* Input Footer */}
           <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
-            {/* Character Counter */}
             <div>
               {chatText.length > 0 && (
                 <span
@@ -545,7 +493,6 @@ export function ChatPanel({
               )}
             </div>
 
-            {/* Send Button */}
             <button
               type="submit"
               disabled={!canSubmit}
@@ -570,7 +517,7 @@ export function ChatPanel({
         </div>
 
         {/* ==================================================
-            INPUT HINTS
+            INPUT HINT
         ================================================== */}
 
         {canEdit && (
@@ -587,9 +534,9 @@ export function ChatPanel({
                 Enter
               </kbd>
               to apply
-              <span className="mx-0.5 text-ink/20">
-                •
-              </span>
+
+              <span className="mx-0.5 text-ink/20">•</span>
+
               <kbd className="rounded border border-line bg-paper px-1.5 py-0.5 font-medium">
                 Shift
               </kbd>
@@ -603,7 +550,7 @@ export function ChatPanel({
         )}
 
         {/* ==================================================
-            QUICK SUGGESTIONS
+            QUICK EDITS
         ================================================== */}
 
         {!chatText.trim() && canEdit && (
@@ -639,7 +586,7 @@ export function ChatPanel({
                       </span>
 
                       <span className="mt-0.5 block truncate text-[8px] text-ink/30">
-                        Try this edit
+                        {suggestion.description}
                       </span>
                     </span>
                   </button>
@@ -650,7 +597,7 @@ export function ChatPanel({
         )}
 
         {/* ==================================================
-            MAIN SUBMIT BUTTON
+            MAIN ACTION
         ================================================== */}
 
         <Button
