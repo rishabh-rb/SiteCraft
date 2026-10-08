@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChangeEvent,
   FormEvent,
   KeyboardEvent,
   useEffect,
@@ -12,7 +13,7 @@ import {
   ArrowUp,
   Check,
   CheckCircle2,
-  Copy,
+  Clipboard,
   LayoutTemplate,
   Loader2,
   MessageSquarePlus,
@@ -21,6 +22,8 @@ import {
   Type,
   User,
   WandSparkles,
+  X,
+  Zap,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,13 +42,20 @@ interface ChatPanelProps {
   disabled: boolean;
 }
 
+interface Suggestion {
+  label: string;
+  description: string;
+  text: string;
+  icon: typeof Palette;
+}
+
 /* =========================================================
    CONSTANTS
 ========================================================= */
 
 const MAX_MESSAGE_LENGTH = 1000;
 
-const suggestions = [
+const suggestions: Suggestion[] = [
   {
     label: "Modern colors",
     description: "Refresh the color palette",
@@ -55,13 +65,13 @@ const suggestions = [
   {
     label: "Add pricing",
     description: "Create a pricing section",
-    text: "Add a clean, modern, and responsive pricing section to the website.",
+    text: "Add a clean, modern, responsive pricing section with attractive pricing cards and a clear call-to-action.",
     icon: LayoutTemplate,
   },
   {
-    label: "Change font",
-    description: "Improve typography",
-    text: "Change the website typography to a clean, modern sans-serif font.",
+    label: "Better typography",
+    description: "Improve fonts and spacing",
+    text: "Improve the website typography using a clean modern sans-serif font, better font sizes, spacing, and hierarchy.",
     icon: Type,
   },
 ];
@@ -80,6 +90,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const copyTimeoutRef = useRef<number | null>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -91,8 +102,7 @@ export function ChatPanel({
     trimmedText.length > 0 &&
     chatText.length <= MAX_MESSAGE_LENGTH;
 
-  const remainingCharacters =
-    MAX_MESSAGE_LENGTH - chatText.length;
+  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
 
   const isNearLimit = remainingCharacters <= 120;
   const isAtLimit = remainingCharacters <= 0;
@@ -120,8 +130,8 @@ export function ChatPanel({
     textarea.style.height = "auto";
 
     const nextHeight = Math.min(
-      Math.max(textarea.scrollHeight, 72),
-      180
+      Math.max(textarea.scrollHeight, 76),
+      190
     );
 
     textarea.style.height = `${nextHeight}px`;
@@ -140,22 +150,31 @@ export function ChatPanel({
   }, [canEdit, messages.length]);
 
   /* =======================================================
+     CLEANUP
+  ======================================================= */
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  /* =======================================================
      KEYBOARD HANDLING
   ======================================================= */
 
   const handleKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>
   ) => {
-    const isSubmitShortcut =
-      event.key === "Enter" &&
-      (event.ctrlKey || event.metaKey);
+    const isEnter = event.key === "Enter";
+    const isShiftEnter = isEnter && event.shiftKey;
 
-    const isSimpleEnter =
-      event.key === "Enter" && !event.shiftKey;
+    if (isShiftEnter) return;
 
-    if ((isSimpleEnter || isSubmitShortcut) && canSubmit) {
+    if (isEnter && canSubmit) {
       event.preventDefault();
-
       event.currentTarget.form?.requestSubmit();
     }
   };
@@ -165,13 +184,25 @@ export function ChatPanel({
   ======================================================= */
 
   const handleChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>
+    event: ChangeEvent<HTMLTextAreaElement>
   ) => {
     const value = event.target.value;
 
     if (value.length <= MAX_MESSAGE_LENGTH) {
       setChatText(value);
     }
+  };
+
+  /* =======================================================
+     CLEAR INPUT
+  ======================================================= */
+
+  const handleClear = () => {
+    setChatText("");
+
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
   };
 
   /* =======================================================
@@ -199,7 +230,11 @@ export function ChatPanel({
 
       setCopiedId(id);
 
-      window.setTimeout(() => {
+      if (copyTimeoutRef.current) {
+        window.clearTimeout(copyTimeoutRef.current);
+      }
+
+      copyTimeoutRef.current = window.setTimeout(() => {
         setCopiedId(null);
       }, 1600);
     } catch {
@@ -221,6 +256,10 @@ export function ChatPanel({
 
     onSubmit(event);
   };
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <section
@@ -251,7 +290,8 @@ export function ChatPanel({
               </h2>
 
               {!disabled && (
-                <span className="hidden rounded-full bg-teal/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-teal sm:inline-flex">
+                <span className="hidden items-center gap-1 rounded-full bg-teal/10 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-teal sm:inline-flex">
+                  <Sparkles className="h-2.5 w-2.5" />
                   AI
                 </span>
               )}
@@ -300,11 +340,12 @@ export function ChatPanel({
 
             <p className="mt-1.5 max-w-xs text-[11px] leading-4 text-ink/45">
               Tell me what you want to change. Update colors,
-              text, layouts, sections, typography, and more.
+              text, layouts, sections, spacing, typography, and
+              more.
             </p>
 
             <div className="mt-3 flex items-center gap-1.5 rounded-full bg-teal/5 px-2.5 py-1">
-              <Sparkles className="h-3 w-3 text-teal" />
+              <Zap className="h-3 w-3 text-teal" />
 
               <span className="text-[9px] font-semibold text-teal">
                 AI-powered website editing
@@ -346,7 +387,7 @@ export function ChatPanel({
                     }`}
                   >
                     <div
-                      className={`rounded-2xl border px-3 py-2.5 shadow-sm transition-shadow duration-200 group-hover:shadow-md ${
+                      className={`rounded-2xl border px-3 py-2.5 shadow-sm transition-all duration-200 group-hover:shadow-md ${
                         isUser
                           ? "rounded-tr-md border-accent/20 bg-accent/[0.06]"
                           : "rounded-tl-md border-line bg-white"
@@ -400,7 +441,7 @@ export function ChatPanel({
                           </>
                         ) : (
                           <>
-                            <Copy className="h-3 w-3" />
+                            <Clipboard className="h-3 w-3" />
                             Copy
                           </>
                         )}
@@ -424,12 +465,16 @@ export function ChatPanel({
 
                     <span
                       className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-                      style={{ animationDelay: "120ms" }}
+                      style={{
+                        animationDelay: "120ms",
+                      }}
                     />
 
                     <span
                       className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-                      style={{ animationDelay: "240ms" }}
+                      style={{
+                        animationDelay: "240ms",
+                      }}
                     />
 
                     <span className="ml-1 text-[9px] font-medium text-ink/40">
@@ -465,31 +510,45 @@ export function ChatPanel({
             placeholder={
               disabled
                 ? "Editing is currently unavailable..."
-                : "Describe the change you want..."
+                : working
+                  ? "AI is applying your changes..."
+                  : "Describe the change you want..."
             }
             disabled={!canEdit}
             rows={3}
             maxLength={MAX_MESSAGE_LENGTH}
             aria-label="Describe your website edit"
             aria-describedby="chat-input-help"
-            className="block min-h-[72px] w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-12 pt-3.5 pr-14 text-sm leading-5 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
+            className="block min-h-[76px] w-full resize-none overflow-y-auto bg-transparent px-3.5 pb-12 pt-3.5 pr-14 text-sm leading-5 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
           />
 
-          {/* Input Footer */}
+          {/* Input Controls */}
           <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
-            <div>
-              {chatText.length > 0 && (
-                <span
-                  className={`text-[9px] font-medium ${
-                    isAtLimit
-                      ? "text-red-500"
-                      : isNearLimit
-                        ? "text-orange-500"
-                        : "text-ink/30"
-                  }`}
-                >
-                  {chatText.length}/{MAX_MESSAGE_LENGTH}
-                </span>
+            <div className="flex items-center gap-2">
+              {chatText.length > 0 && canEdit && (
+                <>
+                  <span
+                    className={`text-[9px] font-medium ${
+                      isAtLimit
+                        ? "text-red-500"
+                        : isNearLimit
+                          ? "text-orange-500"
+                          : "text-ink/30"
+                    }`}
+                  >
+                    {chatText.length}/{MAX_MESSAGE_LENGTH}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-ink/30 transition-colors hover:bg-ink/[0.05] hover:text-ink/60 focus:outline-none focus:ring-2 focus:ring-teal/20"
+                    aria-label="Clear message"
+                    title="Clear"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </>
               )}
             </div>
 
@@ -525,7 +584,8 @@ export function ChatPanel({
             id="chat-input-help"
             className="flex items-center justify-between px-1"
           >
-            <span className="text-[9px] text-ink/30">
+            <span className="flex items-center gap-1 text-[9px] text-ink/30">
+              <Sparkles className="h-2.5 w-2.5" />
               Be specific for better results
             </span>
 
@@ -535,7 +595,9 @@ export function ChatPanel({
               </kbd>
               to apply
 
-              <span className="mx-0.5 text-ink/20">•</span>
+              <span className="mx-0.5 text-ink/20">
+                •
+              </span>
 
               <kbd className="rounded border border-line bg-paper px-1.5 py-0.5 font-medium">
                 Shift
@@ -555,11 +617,17 @@ export function ChatPanel({
 
         {!chatText.trim() && canEdit && (
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 px-1">
-              <Sparkles className="h-3 w-3 text-teal" />
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3 text-teal" />
 
-              <span className="text-[9px] font-bold uppercase tracking-wider text-ink/35">
-                Quick edits
+                <span className="text-[9px] font-bold uppercase tracking-wider text-ink/35">
+                  Quick edits
+                </span>
+              </div>
+
+              <span className="text-[8px] font-medium text-ink/25">
+                Try one
               </span>
             </div>
 
@@ -576,7 +644,7 @@ export function ChatPanel({
                     }
                     className="group flex items-center gap-2 rounded-xl border border-line bg-paper px-2.5 py-2 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/30 hover:bg-teal/[0.04] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-teal/20 active:translate-y-0"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal transition-colors group-hover:bg-teal/15">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10 text-teal transition-all duration-200 group-hover:bg-teal/15">
                       <Icon className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110" />
                     </span>
 
@@ -620,7 +688,11 @@ export function ChatPanel({
             <>
               <Sparkles className="h-4 w-4 transition-transform duration-200 group-hover:rotate-12" />
 
-              <span>Apply Edit</span>
+              <span>
+                {chatText.trim()
+                  ? "Apply Edit"
+                  : "Describe an Edit"}
+              </span>
 
               <ArrowUp className="ml-auto h-3.5 w-3.5 opacity-40 transition-transform duration-200 group-hover:-translate-y-0.5" />
             </>
