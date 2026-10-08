@@ -44,6 +44,10 @@ export function PreviewPanel({
   const [fullscreen, setFullscreen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  /* =========================================================
+     REFRESH PREVIEW
+  ========================================================= */
+
   const handleRefresh = () => {
     if (!website || refreshing) return;
 
@@ -55,6 +59,10 @@ export function PreviewPanel({
     }, 700);
   };
 
+  /* =========================================================
+     FULLSCREEN
+  ========================================================= */
+
   const openFullscreen = () => {
     if (!website) return;
     setFullscreen(true);
@@ -63,6 +71,10 @@ export function PreviewPanel({
   const closeFullscreen = () => {
     setFullscreen(false);
   };
+
+  /* =========================================================
+     OPEN IN NEW TAB
+  ========================================================= */
 
   const openInNewTab = () => {
     if (!website) return;
@@ -75,6 +87,10 @@ export function PreviewPanel({
     previewWindow.document.write(website.html);
     previewWindow.document.close();
   };
+
+  /* =========================================================
+     ESC TO CLOSE FULLSCREEN
+  ========================================================= */
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -90,10 +106,15 @@ export function PreviewPanel({
     };
   }, [fullscreen]);
 
+  /* =========================================================
+     LOCK BODY SCROLL IN FULLSCREEN
+  ========================================================= */
+
   useEffect(() => {
     if (!fullscreen) return;
 
     const originalOverflow = document.body.style.overflow;
+
     document.body.style.overflow = "hidden";
 
     return () => {
@@ -107,8 +128,8 @@ export function PreviewPanel({
           TOP TOOLBAR
       ===================================================== */}
 
-      <div className="relative z-20 flex h-14 shrink-0 items-center justify-between border-b border-line bg-white px-3 shadow-sm sm:px-4">
-        {/* Project identity */}
+      <header className="relative z-20 flex h-14 shrink-0 items-center justify-between border-b border-line bg-white px-3 shadow-sm sm:px-4">
+        {/* Project Identity */}
 
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/10 bg-accent/10 sm:flex">
@@ -129,7 +150,7 @@ export function PreviewPanel({
               )}
             </div>
 
-            <p className="hidden text-[10px] text-ink/40 sm:block">
+            <p className="hidden truncate text-[10px] text-ink/40 sm:block">
               {website
                 ? "Interactive generated website"
                 : "Your generated website will appear here"}
@@ -137,7 +158,7 @@ export function PreviewPanel({
           </div>
         </div>
 
-        {/* Desktop device controls */}
+        {/* Desktop Device Controls */}
 
         <div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
           <DevicePreview
@@ -160,7 +181,7 @@ export function PreviewPanel({
             }`}
           >
             <RefreshCw
-              className={`h-4 w-4 transition-transform ${
+              className={`h-4 w-4 transition-transform duration-300 ${
                 refreshing
                   ? "animate-spin"
                   : "group-hover:rotate-45"
@@ -176,10 +197,10 @@ export function PreviewPanel({
             title="Fullscreen preview"
             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink/50 transition-all duration-200 hover:border-line hover:bg-paper hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 disabled:pointer-events-none disabled:opacity-30"
           >
-            <Maximize2 className="h-4 w-4" />
+            <Maximize2 className="h-4 w-4 transition-transform duration-200 hover:scale-105" />
           </button>
         </div>
-      </div>
+      </header>
 
       {/* =====================================================
           MOBILE DEVICE CONTROLS
@@ -196,7 +217,7 @@ export function PreviewPanel({
           PREVIEW AREA
       ===================================================== */}
 
-      <div className="panel-scroll relative flex min-h-0 flex-1 justify-center overflow-auto p-3 sm:p-5 lg:p-6">
+      <main className="panel-scroll relative flex min-h-0 flex-1 justify-center overflow-auto p-3 sm:p-5 lg:p-6">
         {website ? (
           <div
             className={`relative flex ${deviceClass[device]} justify-center transition-all duration-300 ease-out`}
@@ -210,13 +231,13 @@ export function PreviewPanel({
                   : "rounded-xl border-black/15"
               }`}
             >
-              {/* Mobile notch */}
+              {/* Mobile Notch */}
 
               {device === "mobile" && (
                 <div className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-28 -translate-x-1/2 rounded-b-2xl bg-[#222]" />
               )}
 
-              {/* Browser chrome */}
+              {/* Browser Chrome */}
 
               <div
                 className={`flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3 ${
@@ -243,28 +264,27 @@ export function PreviewPanel({
                 key={refreshKey}
                 title="Generated website preview"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+                loading="eager"
                 className="min-h-0 w-full flex-1 border-none bg-white"
                 srcDoc={website.html}
               />
 
-              {/* Updating overlay */}
+              {/* Loading Overlay */}
 
-              {working && (
-                <PreviewLoadingOverlay />
-              )}
+              {working && <PreviewLoadingOverlay />}
             </div>
           </div>
         ) : (
           <EmptyPreview working={working} />
         )}
-      </div>
+      </main>
 
       {/* =====================================================
           STATUS BAR
       ===================================================== */}
 
       {website && (
-        <div className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
+        <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
           <div className="flex items-center gap-3 text-ink/40">
             <span>
               View:{" "}
@@ -279,21 +299,25 @@ export function PreviewPanel({
           </div>
 
           <div className="flex items-center gap-1.5 font-semibold text-emerald-600">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.1)]" />
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/40" />
+              <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </span>
+
             Ready
           </div>
-        </div>
+        </footer>
       )}
 
       {/* =====================================================
-          FULLSCREEN
+          FULLSCREEN PREVIEW
       ===================================================== */}
 
       {fullscreen && website && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4">
-          {/* Header */}
+          {/* Fullscreen Header */}
 
-          <div className="flex h-12 shrink-0 items-center justify-between rounded-t-xl border border-white/10 bg-[#151719] px-3 shadow-2xl sm:px-4">
+          <header className="flex h-12 shrink-0 items-center justify-between rounded-t-xl border border-white/10 bg-[#151719] px-3 shadow-2xl sm:px-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5">
                 <MonitorPlay className="h-3.5 w-3.5 text-white/70" />
@@ -316,6 +340,8 @@ export function PreviewPanel({
             </div>
 
             <div className="flex items-center gap-1">
+              {/* Refresh */}
+
               <button
                 type="button"
                 onClick={handleRefresh}
@@ -331,6 +357,8 @@ export function PreviewPanel({
                 />
               </button>
 
+              {/* Open New Tab */}
+
               <button
                 type="button"
                 onClick={openInNewTab}
@@ -340,6 +368,8 @@ export function PreviewPanel({
               >
                 <ExternalLink className="h-4 w-4" />
               </button>
+
+              {/* Close */}
 
               <button
                 type="button"
@@ -351,9 +381,9 @@ export function PreviewPanel({
                 <X className="h-4 w-4" />
               </button>
             </div>
-          </div>
+          </header>
 
-          {/* Device controls */}
+          {/* Fullscreen Device Controls */}
 
           <div className="flex shrink-0 items-center justify-center border-x border-white/10 bg-[#111315] py-2">
             <DevicePreview
@@ -362,32 +392,39 @@ export function PreviewPanel({
             />
           </div>
 
-          {/* Fullscreen preview */}
+          {/* Fullscreen Preview */}
 
           <div className="relative min-h-0 flex-1 overflow-hidden border-x border-white/10 bg-white">
             <iframe
               key={`fullscreen-${refreshKey}`}
               title="Fullscreen website preview"
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+              loading="eager"
               className="h-full w-full border-none bg-white"
               srcDoc={website.html}
             />
 
-            {working && <PreviewLoadingOverlay fullscreen />}
+            {working && (
+              <PreviewLoadingOverlay fullscreen />
+            )}
           </div>
 
-          {/* Footer */}
+          {/* Fullscreen Footer */}
 
-          <div className="flex h-8 shrink-0 items-center justify-between rounded-b-xl border-x border-b border-white/10 bg-[#111315] px-3 text-[9px] text-white/30 sm:px-4">
+          <footer className="flex h-8 shrink-0 items-center justify-between rounded-b-xl border-x border-b border-white/10 bg-[#111315] px-3 text-[9px] text-white/30 sm:px-4">
             <span className="hidden sm:inline">
               Press ESC to exit fullscreen
             </span>
 
             <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.1)]" />
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/30" />
+                <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              </span>
+
               Preview ready
             </span>
-          </div>
+          </footer>
         </div>
       )}
     </section>
@@ -409,13 +446,16 @@ function PreviewLoadingOverlay({
         fullscreen ? "bg-white/70" : "bg-white/72"
       }`}
     >
-      <div className="flex items-center gap-2.5 rounded-xl border border-line bg-white px-4 py-3 text-xs font-semibold text-ink shadow-[0_12px_40px_rgba(0,0,0,0.12)]">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
-        </span>
+      <div className="flex min-w-[220px] items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.12)]">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+          <Loader2 className="h-4 w-4 animate-spin text-accent" />
+        </div>
 
-        <div>
-          <p>Updating preview...</p>
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-ink">
+            Updating preview...
+          </p>
+
           <p className="mt-0.5 text-[9px] font-medium text-ink/35">
             Applying the latest changes
           </p>
@@ -443,7 +483,7 @@ function EmptyPreview({
             : "border-ink/20"
         }`}
       >
-        {/* Decorative background */}
+        {/* Decorative Background */}
 
         <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-accent/5 blur-3xl" />
 
@@ -452,7 +492,7 @@ function EmptyPreview({
         <div className="pointer-events-none absolute left-1/2 top-0 h-px w-2/3 -translate-x-1/2 bg-gradient-to-r from-transparent via-accent/20 to-transparent" />
 
         <div className="relative">
-          {/* Main icon */}
+          {/* Main Icon */}
 
           <div
             className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border bg-accent/5 shadow-sm transition-all duration-500 ${
@@ -484,7 +524,7 @@ function EmptyPreview({
             </p>
           </div>
 
-          {/* Feature badges */}
+          {/* Feature Badges */}
 
           {!working && (
             <div className="mt-7 flex flex-wrap justify-center gap-2">
@@ -510,7 +550,7 @@ function EmptyPreview({
             </div>
           )}
 
-          {/* Working state */}
+          {/* Working State */}
 
           {working && (
             <div className="mx-auto mt-7 flex max-w-xs items-center justify-center gap-2 rounded-xl border border-accent/10 bg-accent/5 px-3 py-2.5 text-[10px] font-semibold text-accent">
@@ -540,7 +580,7 @@ function PreviewHint({
   icon?: React.ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-ink/50 shadow-sm transition-all hover:border-ink/15 hover:bg-white hover:text-ink/70">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-ink/50 shadow-sm transition-all duration-200 hover:border-ink/15 hover:bg-white hover:text-ink/70">
       {icon}
       {text}
     </span>
