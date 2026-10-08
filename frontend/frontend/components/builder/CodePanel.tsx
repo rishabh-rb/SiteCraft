@@ -2,17 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Check,
-  Copy,
-  Code2,
-  ShieldCheck,
-  FileCode2,
   AlertCircle,
+  Check,
+  Code2,
+  Copy,
+  FileCode2,
   Files,
-  LockKeyhole,
   Hash,
-  Search,
+  LockKeyhole,
   Maximize2,
+  Search,
+  ShieldCheck,
   X,
 } from "lucide-react";
 
@@ -71,6 +71,12 @@ function getFileName(path: string) {
   return path.split("/").pop() || path;
 }
 
+function getFileExtension(path: string) {
+  const extension = path.split(".").pop()?.toLowerCase();
+
+  return extension ? extension.toUpperCase() : "FILE";
+}
+
 /* =========================================================
    MAIN COMPONENT
 ========================================================= */
@@ -87,10 +93,10 @@ export function CodePanel({
 
   const files = website?.files ?? [];
 
-  /*
-   * Keep the externally controlled selected file as the source
-   * of truth whenever it exists.
-   */
+  /* =======================================================
+     ACTIVE FILE
+  ======================================================= */
+
   const activeFile = useMemo<GeneratedFile | undefined>(() => {
     if (!files.length) return undefined;
 
@@ -100,19 +106,30 @@ export function CodePanel({
     );
   }, [files, selectedFile]);
 
-  /*
-   * If the parent has no selected file but files exist,
-   * initialize it with the first generated file.
-   */
+  /* =======================================================
+     INITIAL FILE SELECTION
+  ======================================================= */
+
   useEffect(() => {
     if (files.length > 0 && !selectedFile) {
       onSelectFile(files[0].path);
     }
   }, [files, selectedFile, onSelectFile]);
 
+  /* =======================================================
+     FILE DATA
+  ======================================================= */
+
   const codeContent = activeFile?.content ?? "";
   const codeLines = codeContent.split("\n");
   const language = getLanguageLabel(activeFile);
+  const extension = activeFile
+    ? getFileExtension(activeFile.path)
+    : "FILE";
+
+  /* =======================================================
+     QA
+  ======================================================= */
 
   const qaScore = Math.min(
     Math.max(website?.qa?.score ?? 0, 0),
@@ -120,6 +137,10 @@ export function CodePanel({
   );
 
   const qaPassed = website?.qa?.passed ?? false;
+
+  /* =======================================================
+     SEARCH
+  ======================================================= */
 
   const filteredCode = useMemo(() => {
     const query = codeSearch.trim().toLowerCase();
@@ -138,32 +159,41 @@ export function CodePanel({
       );
   }, [codeLines, codeSearch]);
 
-  /* =====================================================
-     COPY CODE
-  ====================================================== */
+  /* =======================================================
+     COPY
+  ======================================================= */
 
   const handleCopy = async () => {
     if (!activeFile?.content) return;
 
     try {
-      await navigator.clipboard.writeText(activeFile.content);
+      await navigator.clipboard.writeText(
+        activeFile.content
+      );
 
       setCopied(true);
 
       window.setTimeout(() => {
         setCopied(false);
-      }, 2000);
+      }, 1800);
     } catch (error) {
       console.error("Failed to copy code:", error);
     }
   };
 
-  /* =====================================================
-     KEYBOARD SHORTCUTS
-  ====================================================== */
+  /* =======================================================
+     SEARCH / EDITOR KEYBOARD SHORTCUTS
+  ======================================================= */
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+
       const isCopyShortcut =
         (event.ctrlKey || event.metaKey) &&
         event.shiftKey &&
@@ -173,9 +203,7 @@ export function CodePanel({
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === "f";
 
-      const isEscape = event.key === "Escape";
-
-      if (isCopyShortcut && activeFile) {
+      if (isCopyShortcut && activeFile && !isTyping) {
         event.preventDefault();
         void handleCopy();
       }
@@ -185,10 +213,16 @@ export function CodePanel({
         setShowSearch(true);
       }
 
-      if (isEscape) {
-        setShowSearch(false);
-        setCodeSearch("");
-        setExpanded(false);
+      if (event.key === "Escape") {
+        if (showSearch) {
+          setShowSearch(false);
+          setCodeSearch("");
+          return;
+        }
+
+        if (expanded) {
+          setExpanded(false);
+        }
       }
     };
 
@@ -197,33 +231,45 @@ export function CodePanel({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [activeFile]);
+  }, [activeFile, expanded, showSearch]);
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper">
-      {/* =====================================================
+      {/* ==================================================
           HEADER
-      ===================================================== */}
+      ================================================== */}
 
       <div className="shrink-0 border-b border-line bg-paper">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          {/* Project info */}
+          {/* Project Info */}
 
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/10">
               <Code2 className="h-5 w-5 text-accent" />
 
               {files.length > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-ink px-1 text-[8px] font-bold text-white">
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-paper bg-ink px-1 text-[7px] font-black text-white">
                   {files.length}
                 </span>
               )}
             </div>
 
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-black tracking-tight text-ink">
-                Generated Code
-              </h2>
+              <div className="flex items-center gap-1.5">
+                <h2 className="truncate text-sm font-black tracking-tight text-ink">
+                  Generated Code
+                </h2>
+
+                {activeFile && (
+                  <span className="hidden rounded-full bg-accent/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-accent sm:inline-flex">
+                    Read only
+                  </span>
+                )}
+              </div>
 
               <p className="mt-0.5 truncate text-[10px] text-ink/40">
                 {files.length > 0
@@ -235,82 +281,89 @@ export function CodePanel({
             </div>
           </div>
 
-          {/* Header actions */}
+          {/* Header Actions */}
 
-          <div className="flex shrink-0 items-center gap-1.5">
-            {activeFile && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowSearch((value) => !value)}
-                  aria-label="Search code"
-                  title="Search code"
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
-                    showSearch
-                      ? "border-accent/20 bg-accent/10 text-accent"
-                      : "border-transparent text-ink/45 hover:border-line hover:bg-white hover:text-ink"
-                  }`}
-                >
-                  <Search className="h-3.5 w-3.5" />
-                </button>
+          {activeFile && (
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSearch((value) => !value);
 
-                <button
-                  type="button"
-                  onClick={() => setExpanded(true)}
-                  aria-label="Expand code editor"
-                  title="Expand editor"
-                  className="hidden h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink/45 transition-all hover:border-line hover:bg-white hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 lg:inline-flex"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  disabled={!activeFile.content}
-                  aria-label={
-                    copied
-                      ? "Code copied to clipboard"
-                      : "Copy active file"
+                  if (showSearch) {
+                    setCodeSearch("");
                   }
-                  title={
-                    copied
-                      ? "Copied to clipboard"
-                      : "Copy active file"
-                  }
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-40 ${
-                    copied
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-line bg-white text-ink/65 shadow-sm hover:bg-ink/[0.04] hover:text-ink"
-                  }`}
-                >
-                  {copied ? (
-                    <>
-                      <Check className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">
-                        Copied
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">
-                        Copy
-                      </span>
-                    </>
-                  )}
-                </button>
-              </>
-            )}
-          </div>
+                }}
+                aria-label="Search code"
+                aria-pressed={showSearch}
+                title="Search code · Ctrl/Cmd + F"
+                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
+                  showSearch
+                    ? "border-accent/20 bg-accent/10 text-accent"
+                    : "border-transparent text-ink/45 hover:border-line hover:bg-white hover:text-ink"
+                }`}
+              >
+                <Search className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-label="Expand code editor"
+                title="Expand editor"
+                className="hidden h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink/45 transition-all hover:border-line hover:bg-white hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 lg:inline-flex"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void handleCopy()}
+                disabled={!activeFile.content}
+                aria-label={
+                  copied
+                    ? "Code copied to clipboard"
+                    : "Copy active file"
+                }
+                title={
+                  copied
+                    ? "Copied to clipboard"
+                    : "Copy active file · Ctrl/Cmd + Shift + C"
+                }
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-40 ${
+                  copied
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-line bg-white text-ink/65 shadow-sm hover:bg-ink/[0.04] hover:text-ink"
+                }`}
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+
+                    <span className="hidden sm:inline">
+                      Copied
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+
+                    <span className="hidden sm:inline">
+                      Copy
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* =================================================
-            CODE SEARCH
+            SEARCH BAR
         ================================================= */}
 
         {showSearch && activeFile && (
-          <div className="border-t border-line px-4 py-2.5">
+          <div className="border-t border-line bg-white/40 px-4 py-2.5">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink/30" />
 
@@ -331,7 +384,7 @@ export function CodePanel({
                   type="button"
                   onClick={() => setCodeSearch("")}
                   aria-label="Clear code search"
-                  className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-ink/30 hover:bg-ink/[0.05] hover:text-ink"
+                  className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-ink/30 transition-colors hover:bg-ink/[0.05] hover:text-ink"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -339,12 +392,18 @@ export function CodePanel({
             </div>
 
             {codeSearch && (
-              <p className="mt-1.5 text-[8px] font-medium text-ink/35">
-                {filteredCode?.length ?? 0} matching{" "}
-                {(filteredCode?.length ?? 0) === 1
-                  ? "line"
-                  : "lines"}
-              </p>
+              <div className="mt-1.5 flex items-center justify-between">
+                <p className="text-[8px] font-medium text-ink/35">
+                  {filteredCode?.length ?? 0}{" "}
+                  {(filteredCode?.length ?? 0) === 1
+                    ? "matching line"
+                    : "matching lines"}
+                </p>
+
+                <kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-[7px] text-ink/30">
+                  ESC
+                </kbd>
+              </div>
             )}
           </div>
         )}
@@ -356,7 +415,7 @@ export function CodePanel({
         {website?.qa && (
           <div className="px-4 pb-3 pt-1">
             <div
-              className={`rounded-xl border p-3 shadow-sm ${
+              className={`rounded-xl border p-3 shadow-sm transition-colors ${
                 qaPassed
                   ? "border-emerald-200/70 bg-emerald-50/60"
                   : "border-amber-200/70 bg-amber-50/60"
@@ -414,6 +473,8 @@ export function CodePanel({
                 </div>
               </div>
 
+              {/* Progress */}
+
               <div className="mt-3">
                 <div className="h-1.5 overflow-hidden rounded-full bg-black/5">
                   <div
@@ -435,11 +496,15 @@ export function CodePanel({
                 </div>
               </div>
 
+              {/* Issues */}
+
               {website.qa.issues?.length ? (
                 <div className="mt-3 border-t border-black/5 pt-2.5">
                   <p className="mb-1.5 text-[8px] font-bold uppercase tracking-wider text-ink/35">
                     {website.qa.issues.length} issue
-                    {website.qa.issues.length === 1 ? "" : "s"}{" "}
+                    {website.qa.issues.length === 1
+                      ? ""
+                      : "s"}{" "}
                     found
                   </p>
 
@@ -453,7 +518,7 @@ export function CodePanel({
                         >
                           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
 
-                          <span className="truncate">
+                          <span className="min-w-0 truncate">
                             {issue.message}
                           </span>
                         </div>
@@ -494,10 +559,10 @@ export function CodePanel({
 
         {/* =================================================
             CODE EDITOR
-        ================================================== */}
+        ================================================= */}
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#101214]">
-          {/* Editor header */}
+          {/* Editor Header */}
 
           <div className="flex h-10 shrink-0 items-center justify-between border-b border-white/10 bg-[#17191c] px-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -507,12 +572,14 @@ export function CodePanel({
                     <FileCode2 className="h-3 w-3 text-teal" />
                   </div>
 
-                  <span
-                    className="truncate font-mono text-[10px] text-white/65"
-                    title={activeFile.path}
-                  >
-                    {getFileName(activeFile.path)}
-                  </span>
+                  <div className="min-w-0">
+                    <span
+                      className="block truncate font-mono text-[10px] font-medium text-white/70"
+                      title={activeFile.path}
+                    >
+                      {getFileName(activeFile.path)}
+                    </span>
+                  </div>
                 </>
               ) : (
                 <>
@@ -532,7 +599,7 @@ export function CodePanel({
                 </span>
 
                 <span className="rounded border border-white/10 bg-white/5 px-2 py-1 font-mono text-[8px] font-semibold uppercase tracking-wide text-white/50">
-                  {language}
+                  {extension}
                 </span>
               </div>
             )}
@@ -540,7 +607,7 @@ export function CodePanel({
 
           {/* =================================================
               CODE CONTENT
-          ================================================== */}
+          ================================================= */}
 
           {activeFile ? (
             <div className="panel-scroll flex min-h-0 flex-1 overflow-auto">
@@ -551,7 +618,7 @@ export function CodePanel({
                 />
               ) : (
                 <>
-                  {/* Line numbers */}
+                  {/* Line Numbers */}
 
                   <div className="sticky left-0 z-10 min-h-full shrink-0 select-none border-r border-white/5 bg-[#101214] px-3 py-4 text-right font-mono text-[10px] leading-5 text-white/20">
                     {codeLines.map((_, index) => (
@@ -573,25 +640,12 @@ export function CodePanel({
               )}
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
-                <Files className="h-6 w-6 text-white/20" />
-              </div>
-
-              <p className="mt-4 text-sm font-semibold text-white/60">
-                No code to display
-              </p>
-
-              <p className="mt-1 max-w-xs text-[11px] leading-5 text-white/30">
-                Generate a website to explore its source
-                files and inspect the generated code.
-              </p>
-            </div>
+            <EmptyCodeState />
           )}
 
           {/* =================================================
               EDITOR FOOTER
-          ================================================== */}
+          ================================================= */}
 
           {activeFile && (
             <div className="flex h-7 shrink-0 items-center justify-between border-t border-white/10 bg-[#17191c] px-3">
@@ -600,7 +654,9 @@ export function CodePanel({
                   <Hash className="h-2.5 w-2.5" />
 
                   {codeLines.length}{" "}
-                  {codeLines.length === 1 ? "line" : "lines"}
+                  {codeLines.length === 1
+                    ? "line"
+                    : "lines"}
                 </span>
 
                 <span className="hidden font-mono text-[9px] text-white/20 sm:inline">
@@ -638,7 +694,8 @@ export function CodePanel({
                 </p>
 
                 <p className="text-[8px] uppercase tracking-wider text-white/25">
-                  {language} · {codeLines.length} lines · Read only
+                  {language} · {codeLines.length} lines ·
+                  Read only
                 </p>
               </div>
             </div>
@@ -646,7 +703,7 @@ export function CodePanel({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={handleCopy}
+                onClick={() => void handleCopy()}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-white/50 transition-all hover:bg-white/10 hover:text-white"
               >
                 {copied ? (
@@ -665,7 +722,7 @@ export function CodePanel({
                 onClick={() => setExpanded(false)}
                 aria-label="Close expanded editor"
                 title="Close editor"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/45 transition-all hover:bg-white/10 hover:text-white"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/45 transition-all hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -690,11 +747,11 @@ export function CodePanel({
           </div>
 
           <div className="flex h-8 shrink-0 items-center justify-between rounded-b-xl border-x border-b border-white/10 bg-[#17191c] px-3 text-[9px] text-white/25 sm:px-4">
-            <span>
+            <span className="truncate">
               {activeFile.path}
             </span>
 
-            <span className="flex items-center gap-1.5">
+            <span className="ml-3 flex shrink-0 items-center gap-1.5">
               <LockKeyhole className="h-2.5 w-2.5" />
               Read only
             </span>
@@ -702,6 +759,31 @@ export function CodePanel({
         </div>
       )}
     </aside>
+  );
+}
+
+/* =============================================================
+   EMPTY CODE STATE
+============================================================= */
+
+function EmptyCodeState() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+        <Code2 className="h-6 w-6 text-white/20" />
+
+        <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-teal/70" />
+      </div>
+
+      <p className="mt-4 text-sm font-semibold text-white/60">
+        No code to display
+      </p>
+
+      <p className="mt-1 max-w-xs text-[11px] leading-5 text-white/30">
+        Generate a website to explore its source files
+        and inspect the generated code.
+      </p>
+    </div>
   );
 }
 
@@ -722,7 +804,9 @@ function SearchResults({
   if (!results.length) {
     return (
       <div className="flex min-h-full flex-1 flex-col items-center justify-center px-6 text-center">
-        <Search className="h-7 w-7 text-white/15" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/5 bg-white/[0.03]">
+          <Search className="h-5 w-5 text-white/15" />
+        </div>
 
         <p className="mt-3 text-xs font-semibold text-white/45">
           No matches found
@@ -740,10 +824,17 @@ function SearchResults({
 
   return (
     <div className="min-w-full p-4">
-      <div className="mb-3 flex items-center gap-2 text-[9px] font-semibold text-white/25">
-        <Search className="h-3 w-3" />
-        {results.length}{" "}
-        {results.length === 1 ? "match" : "matches"}
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[9px] font-semibold text-white/25">
+          <Search className="h-3 w-3" />
+
+          {results.length}{" "}
+          {results.length === 1 ? "match" : "matches"}
+        </div>
+
+        <span className="rounded-full border border-white/5 bg-white/[0.03] px-2 py-0.5 text-[8px] text-white/20">
+          Search results
+        </span>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-white/5 bg-white/[0.02]">
