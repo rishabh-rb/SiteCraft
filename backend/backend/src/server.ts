@@ -2,7 +2,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createProvider, ProviderError } from "@sitecraft/ml";
+import {
+  createProvider,
+  ProviderError,
+} from "@sitecraft/ml";
 
 const NVIDIA_API_KEY = "super-secret-nvidia-key";
 const NVIDIA_MODEL = "working-model";
@@ -11,6 +14,13 @@ const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 type FetchCall = {
   input: RequestInfo | URL;
   init?: RequestInit;
+};
+
+type ProviderErrorShape = {
+  code: string;
+  model: string;
+  provider: string;
+  message: string;
 };
 
 function mockFetch(
@@ -22,13 +32,8 @@ function mockFetch(
 ): typeof fetch {
   return (async () => {
     return new Response(
-      typeof body === "string"
-        ? body
-        : JSON.stringify(body),
-      {
-        status,
-        headers,
-      }
+      typeof body === "string" ? body : JSON.stringify(body),
+      { status, headers }
     );
   }) as typeof fetch;
 }
@@ -80,52 +85,6 @@ async function withNvidiaEnvironment<T>(
   }
 }
 
-async function assertProviderError(
-  action: () => Promise<unknown>,
-  expectedCode: string,
-  expectedModel = NVIDIA_MODEL
-) {
-  await assert.rejects(
-    action,
-    (error: unknown) => {
-      assert.ok(
-        error instanceof ProviderError,
-        "Expected ProviderError"
-      );
-
-      assert.equal(
-        error.code,
-        expectedCode,
-        `Expected error code ${expectedCode}`
-      );
-
-      assert.equal(
-        error.model,
-        expectedModel,
-        "ProviderError should contain the requested model"
-      );
-
-      assert.equal(
-        error.provider,
-        "nvidia",
-        "ProviderError should identify NVIDIA as the provider"
-      );
-
-      assert.ok(
-        typeof error.message === "string",
-        "ProviderError should contain a message"
-      );
-
-      assert.ok(
-        error.message.length > 0,
-        "ProviderError message should not be empty"
-      );
-
-      return true;
-    }
-  );
-}
-
 function createValidResponse(content = '{"ok":true}') {
   return {
     choices: [
@@ -138,8 +97,33 @@ function createValidResponse(content = '{"ok":true}') {
   };
 }
 
+function assertProviderError(
+  action: () => Promise<unknown>,
+  expectedCode: string,
+  expectedModel = NVIDIA_MODEL
+): Promise<void> {
+  return assert.rejects(
+    action,
+    (error: unknown) => {
+      assert.ok(
+        error instanceof ProviderError,
+        "Expected ProviderError"
+      );
+
+      const providerError = error as ProviderErrorShape;
+
+      assert.equal(providerError.code, expectedCode);
+      assert.equal(providerError.model, expectedModel);
+      assert.equal(providerError.provider, "nvidia");
+      assert.ok(providerError.message.length > 0);
+
+      return true;
+    }
+  );
+}
+
 test(
-  "throws MODEL_UNAVAILABLE when NVIDIA model is unavailable",
+  "throws MODEL_UNAVAILABLE when the NVIDIA model is unavailable",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -169,7 +153,7 @@ test(
 );
 
 test(
-  "includes useful model guidance when NVIDIA model is unavailable",
+  "includes configuration guidance for an unavailable model",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -191,22 +175,9 @@ test(
             ),
             (error: unknown) => {
               assert.ok(error instanceof ProviderError);
-
-              assert.equal(
-                error.code,
-                "MODEL_UNAVAILABLE"
-              );
-
-              assert.match(
-                error.message,
-                /NVIDIA_MODEL/i,
-                "Error should tell the user how to configure the NVIDIA model"
-              );
-
-              assert.match(
-                error.message,
-                new RegExp(NVIDIA_MODEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-              );
+              assert.equal(error.code, "MODEL_UNAVAILABLE");
+              assert.match(error.message, /NVIDIA_MODEL/i);
+              assert.ok(error.message.includes(NVIDIA_MODEL));
 
               return true;
             }
@@ -218,364 +189,182 @@ test(
 );
 
 test(
-  "throws MALFORMED_RESPONSE when NVIDIA returns invalid JSON",
+  "throws MALFORMED_RESPONSE when the HTTP response is invalid JSON",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
 
       await withMockedFetch(
-        mockFetch(
-          "{ this is not valid JSON",
-          200,
-          {
-            "Content-Type": "application/json",
+        mockFetch("{ this is not valid JSON"),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+test(
+  "throws MALFORMED_RESPONSE when the generated content is not JSON",
+  async () => {
+    await withNvidiaEnvironment(async () => {
+      const provider = createProvider();
+
+      await withMockedFetch(
+        mockFetch(createValidResponse("not-json")),
+        async () => {
+          await assertProviderError(
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
+            "MALFORMED_RESPONSE"
+          );
+        }
+      );
+    });
+  }
+);
+
+const malformedResponses: Array<{
+  name: string;
+  body: unknown;
+}> = [
+  {
+    name: "choices is missing",
+    body: {
+      id: "test-response",
+      object: "chat.completion",
+    },
+  },
+  {
+    name: "choices is null",
+    body: { choices: null },
+  },
+  {
+    name: "choices is empty",
+    body: { choices: [] },
+  },
+  {
+    name: "message is missing",
+    body: { choices: [{}] },
+  },
+  {
+    name: "message content is missing",
+    body: {
+      choices: [{ message: {} }],
+    },
+  },
+  {
+    name: "message content is empty",
+    body: {
+      choices: [{ message: { content: "" } }],
+    },
+  },
+];
+
+for (const response of malformedResponses) {
+  test(
+    `throws MALFORMED_RESPONSE when ${response.name}`,
+    async () => {
+      await withNvidiaEnvironment(async () => {
+        const provider = createProvider();
+
+        await withMockedFetch(
+          mockFetch(response.body),
+          async () => {
+            await assertProviderError(
+              () =>
+                provider.generateJson(
+                  "Generate a test response",
+                  "code"
+                ),
+              "MALFORMED_RESPONSE"
+            );
           }
-        ),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
+        );
+      });
+    }
+  );
+}
 
-test(
-  "throws MALFORMED_RESPONSE when choices is missing",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
+const httpErrors: Array<{
+  name: string;
+  status: number;
+  message: string;
+}> = [
+  {
+    name: "server failure",
+    status: 500,
+    message: "Internal server error",
+  },
+  {
+    name: "rate limiting",
+    status: 429,
+    message: "Too many requests",
+  },
+  {
+    name: "invalid API key",
+    status: 401,
+    message: "Invalid API key",
+  },
+];
 
-      await withMockedFetch(
-        mockFetch({
-          id: "test-response",
-          object: "chat.completion",
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
+for (const httpError of httpErrors) {
+  test(
+    `returns a ProviderError for ${httpError.name}`,
+    async () => {
+      await withNvidiaEnvironment(async () => {
+        const provider = createProvider();
 
-test(
-  "throws MALFORMED_RESPONSE when choices is null",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch({
-          choices: null,
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws MALFORMED_RESPONSE when choices is empty",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch({
-          choices: [],
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws MALFORMED_RESPONSE when message is missing",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch({
-          choices: [
-            {},
-          ],
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws MALFORMED_RESPONSE when message content is missing",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch({
-          choices: [
+        await withMockedFetch(
+          mockFetch(
             {
-              message: {},
-            },
-          ],
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
-              provider.generateJson(
-                "Generate a test response",
-                "code"
-              ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws MALFORMED_RESPONSE when message content is empty",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch({
-          choices: [
-            {
-              message: {
-                content: "",
+              error: {
+                message: httpError.message,
               },
             },
-          ],
-        }),
-        async () => {
-          await assertProviderError(
-            () =>
+            httpError.status
+          ),
+          async () => {
+            await assert.rejects(
               provider.generateJson(
                 "Generate a test response",
                 "code"
               ),
-            "MALFORMED_RESPONSE"
-          );
-        }
-      );
-    });
-  }
-);
+              (error: unknown) => {
+                assert.ok(error instanceof ProviderError);
+                assert.equal(error.provider, "nvidia");
+                assert.equal(error.model, NVIDIA_MODEL);
+                assert.ok(error.message.length > 0);
+
+                return true;
+              }
+            );
+          }
+        );
+      });
+    }
+  );
+}
 
 test(
-  "throws an appropriate ProviderError for a server failure",
+  "handles network failures without exposing the API key",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch(
-          {
-            error: {
-              message: "Internal server error",
-            },
-          },
-          500
-        ),
-        async () => {
-          await assert.rejects(
-            provider.generateJson(
-              "Generate a test response",
-              "code"
-            ),
-            (error: unknown) => {
-              assert.ok(
-                error instanceof ProviderError,
-                "Server failure should produce ProviderError"
-              );
-
-              assert.equal(
-                error.provider,
-                "nvidia"
-              );
-
-              assert.equal(
-                error.model,
-                NVIDIA_MODEL
-              );
-
-              assert.ok(
-                typeof error.message === "string"
-              );
-
-              assert.ok(
-                error.message.length > 0
-              );
-
-              return true;
-            }
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws an appropriate ProviderError for rate limiting",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch(
-          {
-            error: {
-              message: "Too many requests",
-            },
-          },
-          429
-        ),
-        async () => {
-          await assert.rejects(
-            provider.generateJson(
-              "Generate a test response",
-              "code"
-            ),
-            (error: unknown) => {
-              assert.ok(
-                error instanceof ProviderError,
-                "Rate-limit failure should produce ProviderError"
-              );
-
-              assert.equal(
-                error.provider,
-                "nvidia"
-              );
-
-              assert.equal(
-                error.model,
-                NVIDIA_MODEL
-              );
-
-              assert.ok(
-                typeof error.message === "string"
-              );
-
-              return true;
-            }
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "throws an appropriate ProviderError for invalid API key",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      await withMockedFetch(
-        mockFetch(
-          {
-            error: {
-              message: "Invalid API key",
-            },
-          },
-          401
-        ),
-        async () => {
-          await assert.rejects(
-            provider.generateJson(
-              "Generate a test response",
-              "code"
-            ),
-            (error: unknown) => {
-              assert.ok(
-                error instanceof ProviderError,
-                "Authentication failure should produce ProviderError"
-              );
-
-              assert.equal(
-                error.provider,
-                "nvidia"
-              );
-
-              assert.equal(
-                error.model,
-                NVIDIA_MODEL
-              );
-
-              assert.ok(
-                typeof error.message === "string"
-              );
-
-              return true;
-            }
-          );
-        }
-      );
-    });
-  }
-);
-
-test(
-  "handles network failure without leaking the API key",
-  async () => {
-    await withNvidiaEnvironment(async () => {
-      const provider = createProvider();
-
-      const networkError = new Error(
-        "connect ECONNREFUSED"
-      );
 
       await withMockedFetch(
         (async () => {
-          throw networkError;
+          throw new Error("connect ECONNREFUSED");
         }) as typeof fetch,
         async () => {
           await assert.rejects(
@@ -584,16 +373,10 @@ test(
               "code"
             ),
             (error: unknown) => {
+              assert.ok(error instanceof Error);
               assert.ok(
-                error instanceof Error,
-                "Network failure should produce an Error"
-              );
-
-              assert.ok(
-                !error.message.includes(
-                  NVIDIA_API_KEY
-                ),
-                "API key must never appear in the error message"
+                !error.message.includes(NVIDIA_API_KEY),
+                "API key must not appear in the error message"
               );
 
               return true;
@@ -627,14 +410,9 @@ test(
               "code"
             ),
             (error: unknown) => {
+              assert.ok(error instanceof Error);
               assert.ok(
-                error instanceof Error
-              );
-
-              assert.ok(
-                !error.message.includes(
-                  NVIDIA_API_KEY
-                ),
+                !error.message.includes(NVIDIA_API_KEY),
                 "Provider error must not expose the API key"
               );
 
@@ -648,11 +426,10 @@ test(
 );
 
 test(
-  "sends a correct NVIDIA request",
+  "sends the correct NVIDIA request",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
-
       const calls: FetchCall[] = [];
 
       await withMockedFetch(
@@ -660,107 +437,57 @@ test(
           input: RequestInfo | URL,
           init?: RequestInit
         ) => {
-          calls.push({
-            input,
-            init,
-          });
+          calls.push({ input, init });
 
           return new Response(
             JSON.stringify(
               createValidResponse(
-                JSON.stringify({
-                  success: true,
-                })
+                JSON.stringify({ success: true })
               )
             ),
             {
               status: 200,
               headers: {
-                "Content-Type":
-                  "application/json",
+                "Content-Type": "application/json",
               },
             }
           );
         }) as typeof fetch,
         async () => {
-          const result =
-            await provider.generateJson<{
-              success: boolean;
-            }>(
-              "Generate a test response",
-              "code"
-            );
+          const result = await provider.generateJson<{
+            success: boolean;
+          }>("Generate a test response", "code");
 
-          assert.deepEqual(
-            result,
-            {
-              success: true,
-            }
-          );
+          assert.deepEqual(result, { success: true });
         }
       );
 
-      assert.equal(
-        calls.length,
-        1,
-        "Exactly one NVIDIA request should be made"
-      );
+      assert.equal(calls.length, 1);
 
       const request = calls[0];
-
-      assert.ok(
-        request,
-        "NVIDIA request should exist"
-      );
+      assert.ok(request);
 
       assert.equal(
         String(request.input),
         `${NVIDIA_BASE_URL}/chat/completions`
       );
 
-      assert.equal(
-        request.init?.method,
-        "POST"
-      );
+      assert.equal(request.init?.method, "POST");
+      assert.equal(typeof request.init?.body, "string");
 
-      assert.ok(
-        typeof request.init?.body === "string",
-        "Request should contain a JSON body"
-      );
+      const body = JSON.parse(request.init.body as string);
 
-      const body = JSON.parse(
-        request.init!.body as string
-      );
-
-      assert.equal(
-        body.model,
-        NVIDIA_MODEL
-      );
-
-      assert.ok(
-        Array.isArray(body.messages),
-        "Request should contain messages"
-      );
-
-      assert.ok(
-        body.messages.length > 0,
-        "Request should contain at least one message"
-      );
-
+      assert.equal(body.model, NVIDIA_MODEL);
+      assert.ok(Array.isArray(body.messages));
+      assert.ok(body.messages.length > 0);
       assert.ok(
         body.messages.some(
-          (message: {
-            role?: string;
-            content?: string;
-          }) =>
+          (message: { role?: string }) =>
             message.role === "user"
-        ),
-        "Request should contain a user message"
+        )
       );
 
-      const headers = new Headers(
-        request.init?.headers
-      );
+      const headers = new Headers(request.init?.headers);
 
       assert.equal(
         headers.get("Content-Type"),
@@ -776,7 +503,7 @@ test(
 );
 
 test(
-  "successfully parses a valid NVIDIA JSON response",
+  "parses a valid NVIDIA JSON response",
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -791,22 +518,15 @@ test(
           )
         ),
         async () => {
-          const result =
-            await provider.generateJson<{
-              message: string;
-              value: number;
-            }>(
-              "Return JSON",
-              "code"
-            );
+          const result = await provider.generateJson<{
+            message: string;
+            value: number;
+          }>("Return JSON", "code");
 
-          assert.deepEqual(
-            result,
-            {
-              message: "success",
-              value: 42,
-            }
-          );
+          assert.deepEqual(result, {
+            message: "success",
+            value: 42,
+          });
         }
       );
     });
@@ -824,31 +544,18 @@ test(
       await withMockedFetch(
         mockFetch(
           createValidResponse(
-            JSON.stringify({
-              ok: true,
-            })
+            JSON.stringify({ ok: true })
           )
         ),
         async () => {
-          await provider.generateJson(
-            "Return JSON",
-            "code"
-          );
+          await provider.generateJson("Return JSON", "code");
 
-          assert.notEqual(
-            globalThis.fetch,
-            originalFetch,
-            "Mock fetch should be active inside the test"
-          );
+          assert.notEqual(globalThis.fetch, originalFetch);
         }
       );
     });
 
-    assert.equal(
-      globalThis.fetch,
-      originalFetch,
-      "Original fetch should be restored after the test"
-    );
+    assert.equal(globalThis.fetch, originalFetch);
   }
 );
 
@@ -861,32 +568,17 @@ test(
       const provider = createProvider();
 
       await withMockedFetch(
-        mockFetch(
-          {
-            choices: [],
-          }
-        ),
+        mockFetch({ choices: [] }),
         async () => {
           await assert.rejects(
-            provider.generateJson(
-              "Return JSON",
-              "code"
-            )
+            provider.generateJson("Return JSON", "code")
           );
 
-          assert.notEqual(
-            globalThis.fetch,
-            originalFetch,
-            "Mock fetch should be active inside the test"
-          );
+          assert.notEqual(globalThis.fetch, originalFetch);
         }
       );
     });
 
-    assert.equal(
-      globalThis.fetch,
-      originalFetch,
-      "Original fetch should be restored after failure"
-    );
+    assert.equal(globalThis.fetch, originalFetch);
   }
 );
