@@ -11,10 +11,6 @@ const TEST_FILES = [
   },
 ];
 
-/* =========================================================
-   Helper
-========================================================= */
-
 function mockResponse(
   body: unknown,
   status = 200
@@ -27,9 +23,32 @@ function mockResponse(
   });
 }
 
-/* =========================================================
-   Configuration Tests
-========================================================= */
+async function withMockFetch(
+  mock: typeof fetch,
+  callback: () => Promise<void>
+): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock;
+
+  try {
+    await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function successfulResponse(
+  id = "dpl_12345",
+  url = "test-project.vercel.app"
+): Response {
+  return mockResponse({
+    id,
+    url,
+    readyState: "READY",
+  });
+}
+
+// Configuration tests
 
 test("returns configuration guidance when VERCEL_TOKEN is missing", async () => {
   const result = await deployToVercel(
@@ -40,240 +59,180 @@ test("returns configuration guidance when VERCEL_TOKEN is missing", async () => 
 
   assert.equal(result.success, false);
   assert.equal(result.status, "ERROR");
-
   assert.match(
-    result.error || "",
+    result.error ?? "",
     /Vercel deployment is not configured/i
   );
 });
 
-/* =========================================================
-   Successful Deployment
-========================================================= */
+// Successful deployment
 
 test("deploys successfully when Vercel API is configured", async () => {
-  const originalFetch = globalThis.fetch;
+  await withMockFetch(
+    (async () => successfulResponse()) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Test Project",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  globalThis.fetch = (async () =>
-    mockResponse({
-      id: "dpl_12345",
-      url: "test-project.vercel.app",
-      readyState: "READY",
-    })) as typeof fetch;
-
-  try {
-    const result = await deployToVercel(
-      "Test Project",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, true);
-    assert.equal(result.status, "READY");
-    assert.equal(result.deploymentId, "dpl_12345");
-    assert.equal(
-      result.deploymentUrl,
-      "https://test-project.vercel.app"
-    );
-    assert.equal(result.provider, "vercel");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, true);
+      assert.equal(result.status, "READY");
+      assert.equal(result.deploymentId, "dpl_12345");
+      assert.equal(
+        result.deploymentUrl,
+        "https://test-project.vercel.app"
+      );
+      assert.equal(result.provider, "vercel");
+    }
+  );
 });
 
-/* =========================================================
-   Authorization Tests
-========================================================= */
+// Authorization tests
 
 test("sends the correct Vercel authorization header", async () => {
-  const originalFetch = globalThis.fetch;
   let authorization = "";
 
-  globalThis.fetch = (async (
-    _input: string | URL | Request,
-    init?: RequestInit
-  ) => {
-    authorization = new Headers(init?.headers).get(
-      "Authorization"
-    ) || "";
+  await withMockFetch(
+    (async (_input: string | URL | Request, init?: RequestInit) => {
+      authorization =
+        new Headers(init?.headers).get("Authorization") ?? "";
 
-    return mockResponse({
-      id: "dpl_auth",
-      url: "auth-test.vercel.app",
-      readyState: "READY",
-    });
-  }) as typeof fetch;
+      return successfulResponse("dpl_auth", "auth-test.vercel.app");
+    }) as typeof fetch,
+    async () => {
+      await deployToVercel(
+        "Auth Test",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  try {
-    await deployToVercel(
-      "Auth Test",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(
-      authorization,
-      "Bearer fake-vercel-token"
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(
+        authorization,
+        "Bearer fake-vercel-token"
+      );
+    }
+  );
 });
 
-/* =========================================================
-   Request Body Tests
-========================================================= */
+// Request body tests
 
 test("sends deployment files to the Vercel API", async () => {
-  const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | undefined;
 
-  globalThis.fetch = (async (
-    _input: string | URL | Request,
-    init?: RequestInit
-  ) => {
-    assert.equal(init?.method, "POST");
+  await withMockFetch(
+    (async (_input: string | URL | Request, init?: RequestInit) => {
+      assert.equal(init?.method, "POST");
 
-    requestBody = JSON.parse(
-      String(init?.body)
-    ) as Record<string, unknown>;
+      requestBody = JSON.parse(
+        String(init?.body)
+      ) as Record<string, unknown>;
 
-    return mockResponse({
-      id: "dpl_files",
-      url: "files-test.vercel.app",
-      readyState: "READY",
-    });
-  }) as typeof fetch;
+      return successfulResponse("dpl_files", "files-test.vercel.app");
+    }) as typeof fetch,
+    async () => {
+      await deployToVercel(
+        "Files Test",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  try {
-    await deployToVercel(
-      "Files Test",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
+      assert.ok(requestBody);
+      assert.equal(requestBody.name, "files-test");
+      assert.ok(Array.isArray(requestBody.files));
 
-    assert.ok(requestBody);
-    assert.equal(requestBody.name, "files-test");
-    assert.ok(Array.isArray(requestBody.files));
+      const files = requestBody.files as Array<{
+        file: string;
+        data: string;
+      }>;
 
-    const files = requestBody.files as Array<{
-      file: string;
-      data: string;
-    }>;
-
-    assert.equal(files.length, 1);
-    assert.equal(files[0].file, "index.html");
-    assert.equal(files[0].data, "<h1>Hello</h1>");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(files.length, 1);
+      assert.equal(files[0].file, "index.html");
+      assert.equal(files[0].data, "<h1>Hello</h1>");
+    }
+  );
 });
 
-/* =========================================================
-   Team Configuration
-========================================================= */
+// Team configuration
 
 test("includes teamId when provided", async () => {
-  const originalFetch = globalThis.fetch;
   let requestUrl = "";
 
-  globalThis.fetch = (async (
-    input: string | URL | Request
-  ) => {
-    requestUrl = String(input);
+  await withMockFetch(
+    (async (input: string | URL | Request) => {
+      requestUrl = String(input);
+      return successfulResponse("dpl_team", "team-test.vercel.app");
+    }) as typeof fetch,
+    async () => {
+      await deployToVercel(
+        "Team Test",
+        TEST_FILES,
+        "fake-vercel-token",
+        "team_123"
+      );
 
-    return mockResponse({
-      id: "dpl_team",
-      url: "team-test.vercel.app",
-      readyState: "READY",
-    });
-  }) as typeof fetch;
-
-  try {
-    await deployToVercel(
-      "Team Test",
-      TEST_FILES,
-      "fake-vercel-token",
-      "team_123"
-    );
-
-    assert.match(requestUrl, /teamId=team_123/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.match(requestUrl, /teamId=team_123/);
+    }
+  );
 });
 
-/* =========================================================
-   API Error Tests
-========================================================= */
+// API error tests
 
 test("handles Vercel API errors", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    mockResponse(
-      {
-        error: {
-          message: "Vercel deployment failed",
+  await withMockFetch(
+    (async () =>
+      mockResponse(
+        {
+          error: {
+            message: "Vercel deployment failed",
+          },
         },
-      },
-      500
-    )) as typeof fetch;
+        500
+      )) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Failed Project",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  try {
-    const result = await deployToVercel(
-      "Failed Project",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, false);
-    assert.equal(result.status, "ERROR");
-
-    assert.match(
-      result.error || "",
-      /Vercel deployment failed/i
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.equal(result.status, "ERROR");
+      assert.match(
+        result.error ?? "",
+        /Vercel deployment failed/i
+      );
+    }
+  );
 });
 
 test("handles unauthorized API responses", async () => {
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = (async () =>
-    mockResponse(
-      {
-        error: {
-          message: "Invalid token",
+  await withMockFetch(
+    (async () =>
+      mockResponse(
+        {
+          error: {
+            message: "Invalid token",
+          },
         },
-      },
-      401
-    )) as typeof fetch;
+        401
+      )) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Unauthorized Project",
+        TEST_FILES,
+        "invalid-token"
+      );
 
-  try {
-    const result = await deployToVercel(
-      "Unauthorized Project",
-      TEST_FILES,
-      "invalid-token"
-    );
-
-    assert.equal(result.success, false);
-    assert.equal(result.status, "ERROR");
-
-    assert.match(
-      result.error || "",
-      /Invalid token/i
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.equal(result.status, "ERROR");
+      assert.match(result.error ?? "", /Invalid token/i);
+    }
+  );
 });
 
-/* =========================================================
-   Invalid Input Tests
-========================================================= */
+// Invalid input tests
 
 test("rejects an empty project name", async () => {
   const result = await deployToVercel(
@@ -284,7 +243,7 @@ test("rejects an empty project name", async () => {
 
   assert.equal(result.success, false);
   assert.equal(result.status, "ERROR");
-  assert.match(result.error || "", /project name/i);
+  assert.match(result.error ?? "", /project name/i);
 });
 
 test("rejects an empty deployment file list", async () => {
@@ -299,149 +258,128 @@ test("rejects an empty deployment file list", async () => {
   assert.ok(result.error);
 });
 
-/* =========================================================
-   Malformed Response Tests
-========================================================= */
+// Malformed response tests
 
 test("handles malformed JSON from Vercel", async () => {
-  const originalFetch = globalThis.fetch;
+  await withMockFetch(
+    (async () =>
+      new Response("invalid-json", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Malformed Project",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  globalThis.fetch = (async () =>
-    new Response("invalid-json", {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })) as typeof fetch;
-
-  try {
-    const result = await deployToVercel(
-      "Malformed Project",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, false);
-    assert.equal(result.status, "ERROR");
-    assert.ok(result.error);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.equal(result.status, "ERROR");
+      assert.ok(result.error);
+    }
+  );
 });
 
 test("handles responses without a deployment ID", async () => {
-  const originalFetch = globalThis.fetch;
+  await withMockFetch(
+    (async () =>
+      mockResponse({
+        url: "missing-id.vercel.app",
+        readyState: "READY",
+      })) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Missing ID Project",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  globalThis.fetch = (async () =>
-    mockResponse({
-      url: "missing-id.vercel.app",
-      readyState: "READY",
-    })) as typeof fetch;
-
-  try {
-    const result = await deployToVercel(
-      "Missing ID Project",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, false);
-    assert.equal(result.status, "ERROR");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.equal(result.status, "ERROR");
+    }
+  );
 });
 
-/* =========================================================
-   Network Error Tests
-========================================================= */
+// Network error tests
 
 test("handles network failures gracefully", async () => {
-  const originalFetch = globalThis.fetch;
+  await withMockFetch(
+    (async () => {
+      throw new Error("Network connection failed");
+    }) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Network Test",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  globalThis.fetch = (async () => {
-    throw new Error("Network connection failed");
-  }) as typeof fetch;
-
-  try {
-    const result = await deployToVercel(
-      "Network Test",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, false);
-    assert.equal(result.status, "ERROR");
-    assert.ok(result.error);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.equal(result.status, "ERROR");
+      assert.ok(result.error);
+    }
+  );
 });
 
-/* =========================================================
-   Security Tests
-========================================================= */
+// Security tests
 
 test("does not expose the Vercel token in error messages", async () => {
-  const originalFetch = globalThis.fetch;
   const secretToken = "super-secret-vercel-token";
 
-  globalThis.fetch = (async () =>
-    mockResponse(
-      {
-        error: {
-          message: "Deployment authentication failed",
+  await withMockFetch(
+    (async () =>
+      mockResponse(
+        {
+          error: {
+            message: "Deployment authentication failed",
+          },
         },
-      },
-      401
-    )) as typeof fetch;
+        401
+      )) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Security Test",
+        TEST_FILES,
+        secretToken
+      );
 
-  try {
-    const result = await deployToVercel(
-      "Security Test",
-      TEST_FILES,
-      secretToken
-    );
-
-    assert.equal(result.success, false);
-
-    assert.doesNotMatch(
-      result.error || "",
-      /super-secret-vercel-token/
-    );
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+      assert.doesNotMatch(
+        result.error ?? "",
+        /super-secret-vercel-token/
+      );
+    }
+  );
 });
 
-/* =========================================================
-   Cleanup Test
-========================================================= */
+// Cleanup test
 
 test("restores global fetch after a deployment error", async () => {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async () =>
-    mockResponse(
-      {
-        error: {
-          message: "Deployment failed",
+  await withMockFetch(
+    (async () =>
+      mockResponse(
+        {
+          error: {
+            message: "Deployment failed",
+          },
         },
-      },
-      500
-    )) as typeof fetch;
+        500
+      )) as typeof fetch,
+    async () => {
+      const result = await deployToVercel(
+        "Cleanup Test",
+        TEST_FILES,
+        "fake-vercel-token"
+      );
 
-  try {
-    const result = await deployToVercel(
-      "Cleanup Test",
-      TEST_FILES,
-      "fake-vercel-token"
-    );
-
-    assert.equal(result.success, false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+      assert.equal(result.success, false);
+    }
+  );
 
   assert.equal(globalThis.fetch, originalFetch);
 });
