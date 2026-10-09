@@ -10,10 +10,12 @@ import {
   FileJson,
   FileImage,
   FileType,
-  File,
+  File as FileIcon,
   ChevronRight,
   FolderOpen,
   Check,
+  Sparkles,
+  Files,
 } from "lucide-react";
 
 import type { GeneratedFile } from "@/lib/api";
@@ -25,11 +27,54 @@ interface FileExplorerProps {
 }
 
 /* =========================================================
+   TYPES
+========================================================= */
+
+interface NormalizedFile {
+  path: string;
+  name: string;
+  folderPath: string;
+  extension: string;
+  searchText: string;
+  originalIndex: number;
+}
+
+/* =========================================================
    HELPERS
 ========================================================= */
 
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function getFileName(path: string): string {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath.split("/").pop() || normalizedPath;
+}
+
+function getFolderPath(path: string): string {
+  const normalizedPath = normalizePath(path);
+  const lastSlash = normalizedPath.lastIndexOf("/");
+
+  return lastSlash > 0
+    ? normalizedPath.slice(0, lastSlash)
+    : "";
+}
+
+function getFileExtension(path: string): string {
+  const fileName = getFileName(path);
+  const lastDot = fileName.lastIndexOf(".");
+
+  // Treat hidden files such as .gitignore as extensionless.
+  if (lastDot <= 0 || lastDot === fileName.length - 1) {
+    return "";
+  }
+
+  return fileName.slice(lastDot + 1).toUpperCase();
+}
+
 function getFileIcon(path: string) {
-  const extension = path.split(".").pop()?.toLowerCase();
+  const extension = getFileExtension(path).toLowerCase();
 
   switch (extension) {
     case "tsx":
@@ -38,9 +83,12 @@ function getFileIcon(path: string) {
     case "js":
     case "mjs":
     case "cjs":
+    case "vue":
+    case "svelte":
       return FileCode2;
 
     case "json":
+    case "jsonc":
       return FileJson;
 
     case "css":
@@ -51,6 +99,7 @@ function getFileIcon(path: string) {
 
     case "html":
     case "htm":
+    case "xml":
       return FileCode2;
 
     case "png":
@@ -60,37 +109,33 @@ function getFileIcon(path: string) {
     case "svg":
     case "webp":
     case "ico":
+    case "avif":
       return FileImage;
 
     case "md":
     case "mdx":
     case "txt":
+    case "log":
       return FileText;
 
     default:
-      return File;
+      return FileIcon;
   }
 }
 
-function getFileExtension(path: string) {
-  const fileName = path.split("/").pop() || path;
-  const lastDot = fileName.lastIndexOf(".");
+function getFolderCount(files: GeneratedFile[]): number {
+  const folders = new Set<string>();
 
-  return lastDot > 0
-    ? fileName.slice(lastDot + 1).toUpperCase()
-    : "";
-}
+  for (const file of files) {
+    const normalizedPath = normalizePath(file.path);
+    const parts = normalizedPath.split("/");
 
-function getFileName(path: string) {
-  return path.split("/").pop() || path;
-}
+    for (let index = 1; index < parts.length; index++) {
+      folders.add(parts.slice(0, index).join("/"));
+    }
+  }
 
-function getFolderPath(path: string) {
-  const parts = path.split("/");
-
-  return parts.length > 1
-    ? parts.slice(0, -1).join("/")
-    : "";
+  return folders.size;
 }
 
 /* =========================================================
@@ -104,6 +149,30 @@ export function FileExplorer({
 }: FileExplorerProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
+  const hasSearch = searchQuery.trim().length > 0;
+
+  /* =======================================================
+     NORMALIZE FILE DATA
+  ======================================================= */
+
+  const normalizedFiles = useMemo<NormalizedFile[]>(() => {
+    return files.map((file, originalIndex) => {
+      const path = normalizePath(file.path);
+      const name = getFileName(path);
+      const folderPath = getFolderPath(path);
+      const extension = getFileExtension(path);
+
+      return {
+        path: file.path,
+        name,
+        folderPath,
+        extension,
+        searchText: `${path} ${name} ${folderPath}`.toLowerCase(),
+        originalIndex,
+      };
+    });
+  }, [files]);
+
   /* =======================================================
      FILTER FILES
   ======================================================= */
@@ -112,34 +181,22 @@ export function FileExplorer({
     const query = searchQuery.trim().toLowerCase();
 
     if (!query) {
-      return files;
+      return normalizedFiles;
     }
 
-    return files.filter((file) => {
-      const path = file.path.toLowerCase();
-      const name = getFileName(file.path).toLowerCase();
-
-      return path.includes(query) || name.includes(query);
-    });
-  }, [files, searchQuery]);
+    return normalizedFiles.filter((file) =>
+      file.searchText.includes(query)
+    );
+  }, [normalizedFiles, searchQuery]);
 
   /* =======================================================
      FOLDER COUNT
   ======================================================= */
 
-  const folderCount = useMemo(() => {
-    const folders = new Set<string>();
-
-    for (const file of files) {
-      const parts = file.path.split("/");
-
-      for (let index = 1; index < parts.length; index++) {
-        folders.add(parts.slice(0, index).join("/"));
-      }
-    }
-
-    return folders.size;
-  }, [files]);
+  const folderCount = useMemo(
+    () => getFolderCount(files),
+    [files]
+  );
 
   /* =======================================================
      SELECTED FILE
@@ -150,21 +207,34 @@ export function FileExplorer({
     [files, selectedFile]
   );
 
-  const hasSearch = searchQuery.trim().length > 0;
+  /* =======================================================
+     CLEAR SEARCH
+  ======================================================= */
+
+  const clearSearch = () => setSearchQuery("");
 
   /* =======================================================
      EMPTY PROJECT
   ======================================================= */
 
-  if (!files.length) {
+  if (files.length === 0) {
     return (
-      <aside className="flex h-full min-h-32 w-full flex-col border-r border-line bg-paper">
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+      <aside
+        aria-label="Project file explorer"
+        className="flex h-full min-h-32 w-full flex-col border-r border-line bg-paper"
+      >
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
           <div className="relative mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-line bg-ink/[0.025] shadow-sm">
-            <FolderOpen className="h-6 w-6 text-ink/25" />
+            <FolderOpen
+              className="h-6 w-6 text-ink/25"
+              aria-hidden="true"
+            />
 
             <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-paper bg-accent">
-              <SparklesIcon />
+              <Sparkles
+                className="h-2.5 w-2.5 text-white"
+                aria-hidden="true"
+              />
             </span>
           </div>
 
@@ -182,7 +252,10 @@ export function FileExplorer({
   }
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col border-r border-line bg-paper">
+    <aside
+      aria-label="Project file explorer"
+      className="flex h-full min-h-0 w-full flex-col border-r border-line bg-paper"
+    >
       {/* ==================================================
           HEADER
       ================================================== */}
@@ -192,7 +265,10 @@ export function FileExplorer({
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-teal/10 bg-teal/10">
-                <FolderOpen className="h-4 w-4 text-teal" />
+                <FolderOpen
+                  className="h-4 w-4 text-teal"
+                  aria-hidden="true"
+                />
               </div>
 
               <div className="min-w-0">
@@ -206,13 +282,15 @@ export function FileExplorer({
                   </span>
                 </div>
 
-                <div className="mt-1 flex items-center gap-1.5 text-[9px] font-medium text-ink/35">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] font-medium text-ink/35">
                   <span>
                     {files.length}{" "}
                     {files.length === 1 ? "file" : "files"}
                   </span>
 
-                  <span className="text-ink/15">•</span>
+                  <span aria-hidden="true" className="text-ink/15">
+                    •
+                  </span>
 
                   <span>
                     {folderCount}{" "}
@@ -225,49 +303,63 @@ export function FileExplorer({
             <div
               className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-lg border border-line bg-ink/[0.025] px-1.5 text-[9px] font-black tabular-nums text-ink/45"
               title={`${files.length} project files`}
+              aria-label={`${files.length} project files`}
             >
               {files.length}
             </div>
           </div>
 
           {/* Search */}
+
           <div className="relative mt-3.5">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink/25" />
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink/25"
+              aria-hidden="true"
+            />
 
             <input
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search files or folders..."
-              aria-label="Search project files"
+              aria-label="Search project files and folders"
+              aria-describedby="file-search-status"
+              autoComplete="off"
+              spellCheck={false}
               className="h-9 w-full rounded-xl border border-line bg-ink/[0.018] pl-8 pr-9 text-[10px] font-medium text-ink outline-none transition-all duration-200 placeholder:text-ink/25 hover:border-ink/10 focus:border-teal/40 focus:bg-paper focus:ring-4 focus:ring-teal/5"
             />
 
             {hasSearch && (
               <button
                 type="button"
-                onClick={() => setSearchQuery("")}
+                onClick={clearSearch}
                 aria-label="Clear file search"
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-lg text-ink/30 transition-all hover:bg-ink/[0.06] hover:text-ink focus:outline-none focus:ring-2 focus:ring-teal/20"
+                title="Clear search"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-lg text-ink/30 transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3 w-3" aria-hidden="true" />
               </button>
             )}
           </div>
 
           {/* Search result status */}
-          {hasSearch && (
-            <div className="mt-2 flex items-center justify-between px-0.5">
-              <span className="text-[8px] font-medium text-ink/30">
-                Showing matching files
-              </span>
 
-              <span className="text-[8px] font-bold tabular-nums text-teal/70">
-                {filteredFiles.length} result
-                {filteredFiles.length === 1 ? "" : "s"}
-              </span>
-            </div>
-          )}
+          <div
+            id="file-search-status"
+            aria-live="polite"
+            className={`mt-2 flex items-center justify-between px-0.5 ${
+              hasSearch ? "" : "hidden"
+            }`}
+          >
+            <span className="text-[8px] font-medium text-ink/30">
+              Matching files
+            </span>
+
+            <span className="text-[8px] font-bold tabular-nums text-teal/70">
+              {filteredFiles.length}{" "}
+              {filteredFiles.length === 1 ? "result" : "results"}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -280,49 +372,54 @@ export function FileExplorer({
           <div className="space-y-0.5">
             {filteredFiles.map((file) => {
               const isSelected = selectedFile === file.path;
-              const FileIcon = getFileIcon(file.path);
-              const extension = getFileExtension(file.path);
-              const fileName = getFileName(file.path);
-              const folderPath = getFolderPath(file.path);
+              const CurrentFileIcon = getFileIcon(file.path);
 
               return (
                 <button
-                  key={file.path}
+                  key={`${file.path}-${file.originalIndex}`}
                   type="button"
                   onClick={() => onSelectFile(file.path)}
                   title={file.path}
                   aria-current={isSelected ? "page" : undefined}
-                  className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 outline-none transition-all duration-150 ${
+                  aria-label={`Open ${file.path}${
+                    isSelected ? ", currently selected" : ""
+                  }`}
+                  className={`group relative flex w-full items-center gap-2.5 overflow-hidden rounded-xl px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-teal/30 ${
                     isSelected
                       ? "bg-ink text-white shadow-sm"
-                      : "text-ink/70 hover:bg-ink/[0.035] hover:text-ink focus-visible:bg-ink/[0.05] focus-visible:ring-2 focus-visible:ring-teal/10"
+                      : "text-ink/70 hover:bg-ink/[0.035] hover:text-ink focus-visible:bg-ink/[0.05]"
                   }`}
                 >
                   {/* Active indicator */}
+
                   <span
+                    aria-hidden="true"
                     className={`absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r-full bg-teal transition-all duration-200 ${
                       isSelected ? "w-0.5" : "w-0"
                     }`}
                   />
 
                   {/* File icon */}
+
                   <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 ${
                       isSelected
                         ? "bg-white/10"
                         : "border border-line/60 bg-ink/[0.025] group-hover:border-teal/10 group-hover:bg-teal/10"
                     }`}
                   >
-                    <FileIcon
-                      className={`h-3.5 w-3.5 transition-all duration-150 ${
+                    <CurrentFileIcon
+                      className={`h-3.5 w-3.5 transition-colors duration-150 ${
                         isSelected
                           ? "text-teal"
-                          : "text-ink/35 group-hover:scale-105 group-hover:text-teal"
+                          : "text-ink/35 group-hover:text-teal"
                       }`}
+                      aria-hidden="true"
                     />
                   </span>
 
                   {/* File information */}
+
                   <span className="min-w-0 flex-1">
                     <span
                       className={`block truncate font-mono text-[10px] leading-4 ${
@@ -331,72 +428,79 @@ export function FileExplorer({
                           : "font-semibold text-ink/70 group-hover:text-ink"
                       }`}
                     >
-                      {fileName}
+                      {file.name}
                     </span>
 
-                    {folderPath && (
+                    {file.folderPath && (
                       <span
                         className={`mt-0.5 block truncate font-mono text-[8px] leading-3 ${
                           isSelected
-                            ? "text-white/35"
-                            : "text-ink/25 group-hover:text-ink/35"
+                            ? "text-white/45"
+                            : "text-ink/25 group-hover:text-ink/40"
                         }`}
                       >
-                        {folderPath}
+                        {file.folderPath}
                       </span>
                     )}
                   </span>
 
-                  {/* Extension */}
-                  {extension && (
+                  {/* File extension */}
+
+                  {file.extension && (
                     <span
                       className={`hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide transition-colors sm:block ${
                         isSelected
-                          ? "border-white/5 bg-white/5 text-white/35"
-                          : "border-line/50 bg-ink/[0.02] text-ink/25 group-hover:border-teal/10 group-hover:text-teal/50"
+                          ? "border-white/10 bg-white/5 text-white/45"
+                          : "border-line/50 bg-ink/[0.02] text-ink/25 group-hover:border-teal/10 group-hover:text-teal/60"
                       }`}
                     >
-                      {extension}
+                      {file.extension}
                     </span>
                   )}
 
-                  {/* Arrow */}
-                  <ChevronRight
-                    className={`h-3 w-3 shrink-0 transition-all duration-150 ${
-                      isSelected
-                        ? "translate-x-0 text-white/35"
-                        : "translate-x-[-3px] text-transparent group-hover:translate-x-0 group-hover:text-ink/20"
-                    }`}
-                  />
+                  {/* Selected indicator / arrow */}
+
+                  {isSelected ? (
+                    <Check
+                      className="h-3 w-3 shrink-0 text-teal"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ChevronRight
+                      className="h-3 w-3 shrink-0 translate-x-[-3px] text-transparent transition-all duration-150 group-hover:translate-x-0 group-hover:text-ink/30"
+                      aria-hidden="true"
+                    />
+                  )}
                 </button>
               );
             })}
           </div>
         ) : (
-          /* ==================================================
-             SEARCH EMPTY STATE
-          ================================================== */
+          /* Search empty state */
 
-          <div className="flex h-48 flex-col items-center justify-center px-4 text-center">
+          <div className="flex min-h-48 flex-col items-center justify-center px-4 py-6 text-center">
             <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-ink/[0.025]">
-              <Search className="h-4 w-4 text-ink/25" />
+              <Search
+                className="h-4 w-4 text-ink/25"
+                aria-hidden="true"
+              />
             </div>
 
             <p className="text-[10px] font-black text-ink/65">
               No matching files
             </p>
 
-            <p className="mt-1 max-w-[180px] text-[9px] leading-4 text-ink/35">
-              No files match{" "}
-              <span className="font-semibold text-ink/45">
-                "{searchQuery}"
+            <p className="mt-1 max-w-[180px] break-words text-[9px] leading-4 text-ink/35">
+              Nothing matches{" "}
+              <span className="font-semibold text-ink/50">
+                &quot;{searchQuery.trim()}&quot;
               </span>
             </p>
 
             <button
               type="button"
-              onClick={() => setSearchQuery("")}
-              className="mt-3 rounded-lg border border-line bg-paper px-2.5 py-1.5 text-[9px] font-bold text-teal transition-all hover:border-teal/20 hover:bg-teal/5 focus:outline-none focus:ring-2 focus:ring-teal/10"
+              onClick={clearSearch}
+              className="mt-3 rounded-lg border border-line bg-paper px-2.5 py-1.5 text-[9px] font-bold text-teal transition-colors hover:border-teal/20 hover:bg-teal/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
             >
               Clear search
             </button>
@@ -412,6 +516,7 @@ export function FileExplorer({
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <span
+              aria-hidden="true"
               className={`relative flex h-1.5 w-1.5 shrink-0 rounded-full ${
                 selectedExists ? "bg-teal" : "bg-ink/15"
               }`}
@@ -425,25 +530,27 @@ export function FileExplorer({
               className={`truncate text-[8px] font-medium ${
                 selectedExists ? "text-ink/40" : "text-ink/25"
               }`}
-              title={selectedFile}
+              title={selectedExists ? selectedFile : undefined}
             >
-              {selectedExists
-                ? selectedFile
-                : "No file selected"}
+              {selectedExists ? selectedFile : "No file selected"}
             </span>
           </div>
 
           {hasSearch ? (
             <button
               type="button"
-              onClick={() => setSearchQuery("")}
-              className="shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-bold text-teal/70 transition-colors hover:bg-teal/5 hover:text-teal"
+              onClick={clearSearch}
+              title="Clear search and show all files"
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-bold text-teal/70 transition-colors hover:bg-teal/5 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
             >
               {filteredFiles.length}/{files.length}
             </button>
           ) : (
             <div className="flex shrink-0 items-center gap-1">
-              <Check className="h-3 w-3 text-teal/60" />
+              <Check
+                className="h-3 w-3 text-teal/60"
+                aria-hidden="true"
+              />
 
               <span className="text-[8px] font-bold text-teal/60">
                 Ready
@@ -453,27 +560,5 @@ export function FileExplorer({
         </div>
       </footer>
     </aside>
-  );
-}
-
-/* =========================================================
-   DECORATIVE SPARKLES ICON
-========================================================= */
-
-function SparklesIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-2.5 w-2.5 text-white"
-      aria-hidden="true"
-    >
-      <path d="m12 3-1.2 3.8L7 8l3.8 1.2L12 13l1.2-3.8L17 8l-3.8-1.2L12 3Z" />
-      <path d="m19 13-.7 2.3L16 16l2.3.7L19 19l.7-2.3L22 16l-2.3-.7L19 13Z" />
-    </svg>
   );
 }
