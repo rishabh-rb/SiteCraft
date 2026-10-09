@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -62,7 +61,7 @@ const MAX_TEXTAREA_HEIGHT = 190;
 const SCROLL_THRESHOLD = 80;
 const COPY_FEEDBACK_DURATION = 1600;
 
-const suggestions: Suggestion[] = [
+const SUGGESTIONS: Suggestion[] = [
   {
     label: "Modern colors",
     description: "Refresh your color palette",
@@ -103,18 +102,17 @@ export function ChatPanel({
   );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [userHasScrolled, setUserHasScrolled] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
 
   const canEdit = !disabled && !working;
   const trimmedText = chatText.trim();
+  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
 
   const canSubmit =
     canEdit &&
     trimmedText.length > 0 &&
     chatText.length <= MAX_MESSAGE_LENGTH;
-
-  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
 
   const isNearLimit =
     remainingCharacters <= 120 && remainingCharacters > 0;
@@ -122,30 +120,10 @@ export function ChatPanel({
   const isAtLimit = remainingCharacters <= 0;
 
   /* =========================================================
-     AUTO SCROLL
+     SCROLL HELPERS
   ========================================================= */
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior,
-      block: "end",
-    });
-
-    setUserHasScrolled(false);
-    setShowScrollButton(false);
-  }, []);
-
-  useEffect(() => {
-    if (!userHasScrolled) {
-      scrollToBottom("smooth");
-    }
-  }, [messages.length, working, userHasScrolled, scrollToBottom]);
-
-  /* =========================================================
-     DETECT MANUAL SCROLL
-  ========================================================= */
-
-  const handleMessagesScroll = useCallback(() => {
+  const updateScrollState = useCallback(() => {
     const container = messagesContainerRef.current;
 
     if (!container) return;
@@ -155,11 +133,54 @@ export function ChatPanel({
       container.scrollTop -
       container.clientHeight;
 
-    const isAwayFromBottom = distanceFromBottom > SCROLL_THRESHOLD;
+    const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
 
-    setUserHasScrolled(isAwayFromBottom);
-    setShowScrollButton(isAwayFromBottom);
+    setIsNearBottom(nearBottom);
+    setShowScrollButton(!nearBottom);
   }, []);
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior,
+        block: "end",
+      });
+
+      setIsNearBottom(true);
+      setShowScrollButton(false);
+    },
+    []
+  );
+
+  /* =========================================================
+     AUTO SCROLL
+  ========================================================= */
+
+  useEffect(() => {
+    if (isNearBottom) {
+      scrollToBottom("smooth");
+    }
+  }, [messages.length, working, isNearBottom, scrollToBottom]);
+
+  /* =========================================================
+     INITIAL SCROLL POSITION
+  ========================================================= */
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight -
+      container.scrollTop -
+      container.clientHeight;
+
+    const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
+
+    setIsNearBottom(nearBottom);
+    setShowScrollButton(!nearBottom);
+  }, [messages.length]);
 
   /* =========================================================
      AUTO-RESIZE TEXTAREA
@@ -178,8 +199,11 @@ export function ChatPanel({
     );
 
     textarea.style.height = `${nextHeight}px`;
+
     textarea.style.overflowY =
-      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT
+        ? "auto"
+        : "hidden";
   }, [chatText]);
 
   /* =========================================================
@@ -197,19 +221,19 @@ export function ChatPanel({
   }, [canEdit, messages.length]);
 
   /* =========================================================
-     RESET CONVERSATION STATE
+     RESET STATE FOR A NEW CONVERSATION
   ========================================================= */
 
   useEffect(() => {
-    if (messages.length === 0) {
-      setUserHasScrolled(false);
-      setShowScrollButton(false);
-      setCopiedId(null);
-    }
+    if (messages.length !== 0) return;
+
+    setCopiedId(null);
+    setIsNearBottom(true);
+    setShowScrollButton(false);
   }, [messages.length]);
 
   /* =========================================================
-     CLEANUP TIMERS
+     CLEAN UP COPY TIMER
   ========================================================= */
 
   useEffect(() => {
@@ -219,25 +243,6 @@ export function ChatPanel({
       }
     };
   }, []);
-
-  /* =========================================================
-     KEYBOARD HANDLING
-  ========================================================= */
-
-  const handleKeyDown = (
-    event: KeyboardEvent<HTMLTextAreaElement>
-  ) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-
-    // Preserve normal IME composition behavior.
-    if (event.nativeEvent.isComposing) return;
-
-    event.preventDefault();
-
-    if (!canSubmit) return;
-
-    event.currentTarget.form?.requestSubmit();
-  };
 
   /* =========================================================
      INPUT CHANGE
@@ -251,6 +256,29 @@ export function ChatPanel({
     if (value.length <= MAX_MESSAGE_LENGTH) {
       setChatText(value);
     }
+  };
+
+  /* =========================================================
+     KEYBOARD HANDLING
+  ========================================================= */
+
+  const handleKeyDown = (
+    event: KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+
+    if (
+      event.nativeEvent.isComposing ||
+      event.nativeEvent.keyCode === 229
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!canSubmit) return;
+
+    event.currentTarget.form?.requestSubmit();
   };
 
   /* =========================================================
@@ -289,6 +317,10 @@ export function ChatPanel({
 
   const handleCopy = async (id: string, content: string) => {
     try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API is unavailable.");
+      }
+
       await navigator.clipboard.writeText(content);
 
       setCopiedId(id);
@@ -303,6 +335,11 @@ export function ChatPanel({
       }, COPY_FEEDBACK_DURATION);
     } catch {
       setCopiedId(null);
+
+      if (copyTimeoutRef.current !== null) {
+        clearTimeout(copyTimeoutRef.current);
+        copyTimeoutRef.current = null;
+      }
     }
   };
 
@@ -316,7 +353,6 @@ export function ChatPanel({
       return;
     }
 
-    // Let the existing parent handler process the submission.
     onSubmit(event);
   };
 
@@ -344,12 +380,13 @@ export function ChatPanel({
               className={`h-5 w-5 ${
                 disabled ? "text-ink/30" : "text-teal"
               }`}
+              aria-hidden="true"
             />
 
             {!disabled && (
               <span
                 className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-paper bg-emerald-500"
-                aria-label="Editor available"
+                title="Editor available"
               />
             )}
           </div>
@@ -362,7 +399,7 @@ export function ChatPanel({
 
               {!disabled && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-teal/15 bg-teal/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-teal">
-                  <Sparkles className="h-3 w-3" />
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
                   AI Powered
                 </span>
               )}
@@ -379,7 +416,10 @@ export function ChatPanel({
             className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5"
             title={`${messages.length} conversation messages`}
           >
-            <CheckCircle2 className="h-3.5 w-3.5 text-teal" />
+            <CheckCircle2
+              className="h-3.5 w-3.5 text-teal"
+              aria-hidden="true"
+            />
 
             <span className="text-[10px] font-bold text-ink/60">
               {messages.length}
@@ -393,12 +433,13 @@ export function ChatPanel({
       <div className="relative">
         <div
           ref={messagesContainerRef}
-          onScroll={handleMessagesScroll}
+          onScroll={updateScrollState}
           className="panel-scroll max-h-96 min-h-40 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-ink/[0.015] p-3 sm:p-4"
           aria-label="Edit conversation"
           aria-live="polite"
           aria-relevant="additions text"
           role="log"
+          aria-busy={working}
         >
           {messages.length === 0 ? (
             <EmptyChatState />
@@ -416,21 +457,21 @@ export function ChatPanel({
 
               {working && <ThinkingIndicator />}
 
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} aria-hidden="true" />
             </div>
           )}
         </div>
 
         {/* JUMP TO LATEST MESSAGE */}
 
-        {showScrollButton && (
+        {showScrollButton && messages.length > 0 && (
           <button
             type="button"
             onClick={() => scrollToBottom("smooth")}
-            className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-2 text-[10px] font-bold text-ink shadow-lg transition hover:border-teal/30 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+            className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-2 text-[10px] font-bold text-ink shadow-lg transition-colors hover:border-teal/30 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
             aria-label="Scroll to latest message"
           >
-            <ArrowDown className="h-3.5 w-3.5" />
+            <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
             Latest
           </button>
         )}
@@ -446,8 +487,6 @@ export function ChatPanel({
               : "border-line opacity-70"
           }`}
         >
-          {/* Focus accent */}
-
           {canEdit && (
             <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-teal transition-transform duration-300 group-focus-within:scale-x-100" />
           )}
@@ -491,7 +530,6 @@ export function ChatPanel({
                           ? "text-orange-500"
                           : "text-ink/35"
                     }`}
-                    aria-live="off"
                   >
                     {remainingCharacters} characters left
                   </span>
@@ -499,18 +537,24 @@ export function ChatPanel({
                   <button
                     type="button"
                     onClick={handleClear}
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink/40 transition hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink/40 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
                     aria-label="Clear message"
                     title="Clear message"
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </>
               )}
 
               {working && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-teal">
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                <span
+                  className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-teal"
+                  role="status"
+                >
+                  <Loader2
+                    className="h-3 w-3 animate-spin"
+                    aria-hidden="true"
+                  />
                   Working...
                 </span>
               )}
@@ -534,9 +578,12 @@ export function ChatPanel({
               title={canSubmit ? "Apply edit" : "Enter a message first"}
             >
               {working ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2
+                  className="h-4 w-4 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
-                <ArrowUp className="h-4 w-4" />
+                <ArrowUp className="h-4 w-4" aria-hidden="true" />
               )}
             </button>
           </div>
@@ -550,7 +597,10 @@ export function ChatPanel({
             className="flex flex-wrap items-center justify-between gap-2 px-1"
           >
             <span className="inline-flex items-center gap-1.5 text-[10px] text-ink/40">
-              <Sparkles className="h-3 w-3 shrink-0 text-teal" />
+              <Sparkles
+                className="h-3 w-3 shrink-0 text-teal"
+                aria-hidden="true"
+              />
               Specific instructions give better results.
             </span>
 
@@ -576,9 +626,12 @@ export function ChatPanel({
 
         {!trimmedText && canEdit && (
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between px-1">
+            <div className="flex items-center justify-between gap-2 px-1">
               <div className="flex items-center gap-1.5">
-                <WandSparkles className="h-3.5 w-3.5 text-teal" />
+                <WandSparkles
+                  className="h-3.5 w-3.5 text-teal"
+                  aria-hidden="true"
+                />
 
                 <h3 className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/45">
                   Quick edits
@@ -591,7 +644,7 @@ export function ChatPanel({
             </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {suggestions.map((suggestion) => {
+              {SUGGESTIONS.map((suggestion) => {
                 const Icon = suggestion.icon;
 
                 return (
@@ -602,7 +655,7 @@ export function ChatPanel({
                     className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-paper p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/30 hover:bg-teal/[0.035] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30 active:translate-y-0"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-teal/10 bg-teal/[0.08] text-teal transition-transform duration-200 group-hover:scale-105">
-                      <Icon className="h-4 w-4" />
+                      <Icon className="h-4 w-4" aria-hidden="true" />
                     </span>
 
                     <span className="min-w-0 flex-1">
@@ -615,7 +668,10 @@ export function ChatPanel({
                       </span>
                     </span>
 
-                    <ArrowUp className="h-3.5 w-3.5 shrink-0 -rotate-45 text-ink/20 transition-all group-hover:translate-x-0.5 group-hover:text-teal" />
+                    <ArrowUp
+                      className="h-3.5 w-3.5 shrink-0 -rotate-45 text-ink/20 transition-all group-hover:translate-x-0.5 group-hover:text-teal"
+                      aria-hidden="true"
+                    />
                   </button>
                 );
               })}
@@ -640,14 +696,23 @@ export function ChatPanel({
 
           {working ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2
+                className="h-4 w-4 animate-spin"
+                aria-hidden="true"
+              />
               <span>Applying changes...</span>
             </>
           ) : (
             <>
-              <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
+              <Sparkles
+                className="h-4 w-4 transition-transform group-hover:rotate-12"
+                aria-hidden="true"
+              />
               <span>{trimmedText ? "Apply Edit" : "Describe an Edit"}</span>
-              <ArrowUp className="ml-auto h-4 w-4 opacity-50 transition-transform group-hover:-translate-y-0.5" />
+              <ArrowUp
+                className="ml-auto h-4 w-4 opacity-50 transition-transform group-hover:-translate-y-0.5"
+                aria-hidden="true"
+              />
             </>
           )}
         </Button>
@@ -685,7 +750,10 @@ function EmptyChatState() {
 
       <div className="relative mb-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-teal/15 bg-teal/10 shadow-sm">
-          <WandSparkles className="h-6 w-6 text-teal" />
+          <WandSparkles
+            className="h-6 w-6 text-teal"
+            aria-hidden="true"
+          />
         </div>
 
         <span
@@ -701,12 +769,12 @@ function EmptyChatState() {
       </h3>
 
       <p className="relative mt-2 max-w-xs text-xs leading-5 text-ink/45">
-        Describe what you want to improve. Update layouts, colors, content,
-        typography, spacing, and sections using natural language.
+        Describe what you want to improve. Update layouts, colors,
+        content, typography, spacing, and sections using natural language.
       </p>
 
       <div className="relative mt-4 inline-flex items-center gap-2 rounded-full border border-teal/15 bg-teal/[0.06] px-3 py-1.5">
-        <Zap className="h-3.5 w-3.5 text-teal" />
+        <Zap className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
 
         <span className="text-[10px] font-bold text-teal">
           AI-powered website editing
@@ -775,12 +843,12 @@ function ChatBubble({
           >
             {isUser ? (
               <>
-                <User className="h-3 w-3" />
+                <User className="h-3 w-3" aria-hidden="true" />
                 You
               </>
             ) : (
               <>
-                <Sparkles className="h-3 w-3" />
+                <Sparkles className="h-3 w-3" aria-hidden="true" />
                 AI Assistant
               </>
             )}
@@ -802,12 +870,15 @@ function ChatBubble({
           >
             {isCopied ? (
               <>
-                <Check className="h-3.5 w-3.5 text-emerald-500" />
+                <Check
+                  className="h-3.5 w-3.5 text-emerald-500"
+                  aria-hidden="true"
+                />
                 Copied
               </>
             ) : (
               <>
-                <Clipboard className="h-3.5 w-3.5" />
+                <Clipboard className="h-3.5 w-3.5" aria-hidden="true" />
                 Copy response
               </>
             )}
@@ -830,7 +901,10 @@ function ThinkingIndicator() {
       aria-label="AI is applying website changes"
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-teal/15 bg-teal/10">
-        <Sparkles className="h-4 w-4 animate-pulse text-teal" />
+        <Sparkles
+          className="h-4 w-4 animate-pulse text-teal"
+          aria-hidden="true"
+        />
       </div>
 
       <div className="rounded-2xl rounded-tl-md border border-line bg-paper px-4 py-3 shadow-sm">
