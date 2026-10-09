@@ -1,4 +1,3 @@
-
 {
   "name": "@sitecraft/backend",
   "version": "0.1.0",
@@ -11,19 +10,14 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-
     "build": "npm run typecheck && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-
-    "test": "tsx --test src/*.test.ts",
-    "test:watch": "tsx --test --watch src/*.test.ts",
-
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:watch": "tsx --test --watch \"src/**/*.test.ts\"",
     "check": "npm run typecheck && npm test",
-
     "prisma:validate": "prisma validate --schema prisma/schema.prisma",
     "prisma:generate": "prisma generate --schema prisma/schema.prisma",
-
-    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@sitecraft/ml": "*",
