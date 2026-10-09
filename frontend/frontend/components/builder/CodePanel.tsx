@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import {
   AlertCircle,
   Check,
@@ -20,6 +21,8 @@ import {
   Search,
   ShieldCheck,
   X,
+  FileSearch,
+  Files,
 } from "lucide-react";
 
 import { FileExplorer } from "./FileExplorer";
@@ -36,61 +39,78 @@ interface SearchResult {
   number: number;
 }
 
-function getLanguageLabel(file?: GeneratedFile): string {
-  if (!file) return "text";
-  if (file.language) return file.language;
-
-  const extension = file.path.split(".").pop()?.toLowerCase();
-
-  const languageMap: Record<string, string> = {
-    tsx: "tsx",
-    ts: "typescript",
-    jsx: "jsx",
-    js: "javascript",
-    mjs: "javascript",
-    cjs: "javascript",
-    json: "json",
-    css: "css",
-    scss: "scss",
-    sass: "sass",
-    less: "less",
-    html: "html",
-    htm: "html",
-    md: "markdown",
-    mdx: "mdx",
-    yaml: "yaml",
-    yml: "yaml",
-    xml: "xml",
-    svg: "xml",
-    sql: "sql",
-    py: "python",
-    java: "java",
-    php: "php",
-    sh: "shell",
-    bash: "shell",
-    txt: "text",
-    env: "dotenv",
-    prisma: "prisma",
-    graphql: "graphql",
-    gql: "graphql",
-    vue: "vue",
-    svelte: "svelte",
-  };
-
-  return languageMap[extension ?? ""] ?? "text";
-}
+const COPY_SUCCESS_DURATION = 1800;
+const COPY_ERROR_DURATION = 2500;
 
 function getFileName(path: string): string {
   return path.split("/").pop() || path;
 }
 
 function getFileExtension(path: string): string {
-  const fileName = getFileName(path);
-  const dotIndex = fileName.lastIndexOf(".");
+  const name = getFileName(path);
+  const dotIndex = name.lastIndexOf(".");
 
   return dotIndex > 0
-    ? fileName.slice(dotIndex + 1).toUpperCase()
+    ? name.slice(dotIndex + 1).toUpperCase()
     : "FILE";
+}
+
+function getLanguageLabel(file?: GeneratedFile): string {
+  if (!file) return "text";
+  if (file.language) return file.language;
+
+  const name = getFileName(file.path);
+  const extension = name.includes(".")
+    ? name.split(".").pop()?.toLowerCase()
+    : name.toLowerCase() === ".env"
+      ? "env"
+      : "";
+
+  const languages: Record<string, string> = {
+    tsx: "TypeScript React",
+    ts: "TypeScript",
+    jsx: "JavaScript React",
+    js: "JavaScript",
+    mjs: "JavaScript",
+    cjs: "JavaScript",
+    json: "JSON",
+    css: "CSS",
+    scss: "SCSS",
+    sass: "Sass",
+    less: "Less",
+    html: "HTML",
+    htm: "HTML",
+    md: "Markdown",
+    mdx: "MDX",
+    yaml: "YAML",
+    yml: "YAML",
+    xml: "XML",
+    svg: "SVG",
+    sql: "SQL",
+    py: "Python",
+    java: "Java",
+    php: "PHP",
+    sh: "Shell",
+    bash: "Shell",
+    txt: "Plain Text",
+    env: "Environment",
+    prisma: "Prisma",
+    graphql: "GraphQL",
+    gql: "GraphQL",
+    vue: "Vue",
+    svelte: "Svelte",
+    go: "Go",
+    rs: "Rust",
+    c: "C",
+    cpp: "C++",
+    h: "C Header",
+    hpp: "C++ Header",
+    rb: "Ruby",
+    kt: "Kotlin",
+    swift: "Swift",
+  };
+
+  return languages[extension ?? ""] ?? "Plain Text";
 }
 
 function highlightMatch(line: string, query: string) {
@@ -98,9 +118,13 @@ function highlightMatch(line: string, query: string) {
 
   if (!trimmedQuery) return line;
 
+  const parts: Array<{
+    text: string;
+    matched: boolean;
+  }> = [];
+
   const lowerLine = line.toLowerCase();
   const lowerQuery = trimmedQuery.toLowerCase();
-  const parts: Array<{ text: string; matched: boolean }> = [];
 
   let cursor = 0;
 
@@ -159,47 +183,32 @@ export function CodePanel({
   const [codeSearch, setCodeSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [showAllIssues, setShowAllIssues] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
 
   const files = website?.files ?? [];
 
-  const activeFile = useMemo<GeneratedFile | undefined>(() => {
-    if (!files.length) return undefined;
-
-    return (
+  const activeFile = useMemo(
+    () =>
       files.find((file) => file.path === selectedFile) ??
-      files[0]
-    );
-  }, [files, selectedFile]);
-
-  useEffect(() => {
-    if (files.length > 0 && !selectedFile) {
-      onSelectFile(files[0].path);
-    }
-  }, [files, selectedFile, onSelectFile]);
-
-  // If the selected file disappears after regeneration, select a valid file.
-  useEffect(() => {
-    if (
-      files.length > 0 &&
-      selectedFile &&
-      !files.some((file) => file.path === selectedFile)
-    ) {
-      onSelectFile(files[0].path);
-    }
-  }, [files, selectedFile, onSelectFile]);
+      files[0],
+    [files, selectedFile]
+  );
 
   const codeContent = activeFile?.content ?? "";
+
   const codeLines = useMemo(
     () => codeContent.split("\n"),
     [codeContent]
   );
 
   const language = getLanguageLabel(activeFile);
+
   const extension = activeFile
     ? getFileExtension(activeFile.path)
     : "FILE";
@@ -232,6 +241,19 @@ export function CodePanel({
     );
   }, [codeLines, codeSearch]);
 
+  // Keep the selected file valid after generation or regeneration.
+  useEffect(() => {
+    if (!files.length) return;
+
+    const selectionExists = files.some(
+      (file) => file.path === selectedFile
+    );
+
+    if (!selectionExists) {
+      onSelectFile(files[0].path);
+    }
+  }, [files, selectedFile, onSelectFile]);
+
   const clearCopyTimer = useCallback(() => {
     if (copyTimerRef.current !== null) {
       clearTimeout(copyTimerRef.current);
@@ -239,43 +261,91 @@ export function CodePanel({
     }
   }, []);
 
-  useEffect(() => {
-    return () => clearCopyTimer();
+  const resetCopyFeedback = useCallback(() => {
+    clearCopyTimer();
+    setCopied(false);
+    setCopyError(false);
   }, [clearCopyTimer]);
 
+  useEffect(() => {
+    return () => {
+      clearCopyTimer();
+    };
+  }, [clearCopyTimer]);
+
+  // Reset file-specific state when the active file changes.
+  useEffect(() => {
+    setCodeSearch("");
+    setShowAllIssues(false);
+    resetCopyFeedback();
+
+    if (editorRef.current) {
+      editorRef.current.scrollTop = 0;
+      editorRef.current.scrollLeft = 0;
+    }
+  }, [activeFile?.path, resetCopyFeedback]);
+
+  // Clipboard fallback for browsers without Clipboard API access.
   const handleCopy = useCallback(async () => {
     if (!activeFile) return;
 
-    try {
-      await navigator.clipboard.writeText(activeFile.content);
+    clearCopyTimer();
+    setCopied(false);
+    setCopyError(false);
 
-      clearCopyTimer();
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(codeContent);
+      } else {
+        const textarea = document.createElement("textarea");
+
+        textarea.value = codeContent;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        let successful = false;
+
+        try {
+          successful = document.execCommand("copy");
+        } finally {
+          textarea.remove();
+        }
+
+        if (!successful) {
+          throw new Error("Clipboard copy failed");
+        }
+      }
+
       setCopied(true);
-      setCopyError(false);
 
       copyTimerRef.current = setTimeout(() => {
         setCopied(false);
         copyTimerRef.current = null;
-      }, 1800);
+      }, COPY_SUCCESS_DURATION);
     } catch {
-      setCopied(false);
       setCopyError(true);
 
-      clearCopyTimer();
       copyTimerRef.current = setTimeout(() => {
         setCopyError(false);
         copyTimerRef.current = null;
-      }, 2500);
+      }, COPY_ERROR_DURATION);
     }
-  }, [activeFile, clearCopyTimer]);
+  }, [activeFile, codeContent, clearCopyTimer]);
 
   const openSearch = useCallback(() => {
+    if (!activeFile) return;
+
     setShowSearch(true);
 
     requestAnimationFrame(() => {
       searchInputRef.current?.focus();
     });
-  }, []);
+  }, [activeFile]);
 
   const closeSearch = useCallback(() => {
     setShowSearch(false);
@@ -286,15 +356,24 @@ export function CodePanel({
     setExpanded(false);
   }, []);
 
-  // Keyboard shortcuts: Ctrl/Cmd+F, Ctrl/Cmd+Shift+C and Escape.
+  const toggleSearch = useCallback(() => {
+    if (showSearch) {
+      closeSearch();
+    } else {
+      openSearch();
+    }
+  }, [showSearch, closeSearch, openSearch]);
+
+  // Keyboard shortcuts.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
+      const target = event.target;
 
       const isTyping =
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable;
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
 
       const modifier = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
@@ -333,15 +412,15 @@ export function CodePanel({
     };
   }, [
     activeFile,
-    closeExpanded,
-    closeSearch,
     expanded,
-    handleCopy,
-    openSearch,
     showSearch,
+    openSearch,
+    closeSearch,
+    closeExpanded,
+    handleCopy,
   ]);
 
-  // Prevent the page behind the expanded editor from scrolling.
+  // Lock background scrolling while the editor is expanded.
   useEffect(() => {
     if (!expanded) return;
 
@@ -353,25 +432,25 @@ export function CodePanel({
     };
   }, [expanded]);
 
-  // Reset search and copy feedback when switching files.
+  // Keep the search input accessible when opening search.
   useEffect(() => {
-    setCodeSearch("");
-    setCopied(false);
-    setCopyError(false);
-  }, [activeFile?.path]);
+    if (!showSearch) return;
 
-  const toggleSearch = () => {
-    if (showSearch) {
-      closeSearch();
-    } else {
-      openSearch();
-    }
-  };
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [showSearch]);
+
+  const displayedIssues = showAllIssues
+    ? issues
+    : issues.slice(0, 3);
 
   return (
     <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper">
       {/* Header */}
-      <div className="shrink-0 border-b border-line bg-paper">
+      <header className="shrink-0 border-b border-line bg-paper">
         <div className="flex items-center justify-between gap-3 px-3 py-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/10">
@@ -409,32 +488,23 @@ export function CodePanel({
 
           {activeFile && (
             <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
+              <ToolbarButton
                 onClick={toggleSearch}
-                aria-label={
-                  showSearch ? "Close code search" : "Search code"
-                }
-                aria-pressed={showSearch}
+                label={showSearch ? "Close code search" : "Search code"}
                 title="Search code · Ctrl/Cmd + F"
-                className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
-                  showSearch
-                    ? "border-accent/20 bg-accent/10 text-accent"
-                    : "border-transparent text-ink/45 hover:border-line hover:bg-white hover:text-ink"
-                }`}
+                active={showSearch}
               >
                 <Search className="h-3.5 w-3.5" />
-              </button>
+              </ToolbarButton>
 
-              <button
-                type="button"
+              <ToolbarButton
                 onClick={() => setExpanded(true)}
-                aria-label="Expand code editor"
+                label="Expand code editor"
                 title="Expand editor"
-                className="hidden h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink/45 transition-colors hover:border-line hover:bg-white hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 lg:inline-flex"
+                className="hidden lg:inline-flex"
               >
                 <Maximize2 className="h-3.5 w-3.5" />
-              </button>
+              </ToolbarButton>
 
               <button
                 type="button"
@@ -470,7 +540,11 @@ export function CodePanel({
                 )}
 
                 <span className="hidden sm:inline">
-                  {copied ? "Copied" : copyError ? "Failed" : "Copy"}
+                  {copied
+                    ? "Copied"
+                    : copyError
+                      ? "Failed"
+                      : "Copy"}
                 </span>
               </button>
             </div>
@@ -485,19 +559,23 @@ export function CodePanel({
 
               <input
                 ref={searchInputRef}
-                autoFocus
                 type="search"
                 value={codeSearch}
-                onChange={(event) => setCodeSearch(event.target.value)}
+                onChange={(event) =>
+                  setCodeSearch(event.target.value)
+                }
                 placeholder="Search inside code..."
                 aria-label="Search inside active file"
-                className="h-9 w-full rounded-lg border border-line bg-white pl-8 pr-9 font-mono text-xs text-ink outline-none transition focus:border-accent/30 focus:ring-2 focus:ring-accent/10 placeholder:text-ink/30"
+                className="h-9 w-full rounded-lg border border-line bg-white pl-8 pr-9 font-mono text-xs text-ink outline-none transition placeholder:text-ink/30 focus:border-accent/30 focus:ring-2 focus:ring-accent/10"
               />
 
               {codeSearch && (
                 <button
                   type="button"
-                  onClick={() => setCodeSearch("")}
+                  onClick={() => {
+                    setCodeSearch("");
+                    searchInputRef.current?.focus();
+                  }}
                   aria-label="Clear code search"
                   className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-ink/35 transition-colors hover:bg-ink/[0.05] hover:text-ink"
                 >
@@ -507,7 +585,10 @@ export function CodePanel({
             </div>
 
             <div className="mt-1.5 flex items-center justify-between gap-2">
-              <p className="text-[9px] font-medium text-ink/40">
+              <p
+                className="text-[9px] font-medium text-ink/40"
+                aria-live="polite"
+              >
                 {codeSearch.trim()
                   ? `${filteredCode.length} ${
                       filteredCode.length === 1
@@ -527,7 +608,8 @@ export function CodePanel({
         {/* Quality Check */}
         {website?.qa && (
           <div className="px-3 pb-3 pt-1 sm:px-4">
-            <div
+            <section
+              aria-label="Code quality report"
               className={`rounded-xl border p-3 shadow-sm ${
                 qaPassed
                   ? "border-emerald-200/70 bg-emerald-50/60"
@@ -555,7 +637,9 @@ export function CodePanel({
 
                     <p
                       className={`mt-0.5 truncate text-xs font-bold ${
-                        qaPassed ? "text-emerald-700" : "text-amber-700"
+                        qaPassed
+                          ? "text-emerald-700"
+                          : "text-amber-700"
                       }`}
                     >
                       {qaPassed ? "All checks passed" : "Needs review"}
@@ -566,11 +650,14 @@ export function CodePanel({
                 <div className="shrink-0 text-right">
                   <span
                     className={`text-lg font-black tracking-tight ${
-                      qaPassed ? "text-emerald-700" : "text-amber-700"
+                      qaPassed
+                        ? "text-emerald-700"
+                        : "text-amber-700"
                     }`}
                   >
                     {qaScore}
                   </span>
+
                   <span className="ml-0.5 text-[9px] font-semibold text-ink/35">
                     /100
                   </span>
@@ -588,7 +675,9 @@ export function CodePanel({
                 >
                   <div
                     className={`h-full rounded-full transition-[width] duration-500 ${
-                      qaPassed ? "bg-emerald-500" : "bg-amber-500"
+                      qaPassed
+                        ? "bg-emerald-500"
+                        : "bg-amber-500"
                     }`}
                     style={{ width: `${qaScore}%` }}
                   />
@@ -604,16 +693,18 @@ export function CodePanel({
               {issues.length > 0 ? (
                 <div className="mt-3 border-t border-black/5 pt-2.5">
                   <p className="mb-1.5 text-[8px] font-bold uppercase tracking-wider text-ink/40">
-                    {issues.length} issue{issues.length === 1 ? "" : "s"} found
+                    {issues.length} issue
+                    {issues.length === 1 ? "" : "s"} found
                   </p>
 
                   <div className="space-y-1.5">
-                    {issues.slice(0, 3).map((issue, index) => (
+                    {displayedIssues.map((issue, index) => (
                       <div
                         key={`${issue.message}-${index}`}
                         className="flex items-start gap-1.5 text-[10px] text-ink/60"
                       >
                         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+
                         <span className="min-w-0 break-words">
                           {issue.message}
                         </span>
@@ -622,9 +713,17 @@ export function CodePanel({
                   </div>
 
                   {issues.length > 3 && (
-                    <p className="mt-1.5 text-[9px] text-ink/40">
-                      +{issues.length - 3} more issues
-                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowAllIssues((previous) => !previous)
+                      }
+                      className="mt-2 text-[9px] font-semibold text-ink/55 transition hover:text-ink focus:outline-none focus-visible:underline"
+                    >
+                      {showAllIssues
+                        ? "Show fewer issues"
+                        : `Show ${issues.length - 3} more issues`}
+                    </button>
                   )}
                 </div>
               ) : qaPassed ? (
@@ -632,15 +731,19 @@ export function CodePanel({
                   <Check className="h-3 w-3" />
                   No issues detected
                 </div>
-              ) : null}
-            </div>
+              ) : (
+                <p className="mt-2.5 border-t border-black/5 pt-2.5 text-[9px] text-amber-700/70">
+                  Review the generated code before using it.
+                </p>
+              )}
+            </section>
           </div>
         )}
-      </div>
+      </header>
 
       {/* Workspace */}
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,132px)_minmax(0,1fr)] sm:grid-cols-[180px_minmax(0,1fr)]">
-        <div className="min-h-0 min-w-0 overflow-hidden">
+        <div className="min-h-0 min-w-0 overflow-hidden border-r border-line">
           <FileExplorer
             files={files}
             selectedFile={activeFile?.path ?? ""}
@@ -648,7 +751,7 @@ export function CodePanel({
           />
         </div>
 
-        {/* Editor */}
+        {/* Code Editor */}
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#101214]">
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-[#17191c] px-2.5 sm:px-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -668,6 +771,7 @@ export function CodePanel({
               ) : (
                 <>
                   <Code2 className="h-3.5 w-3.5 text-white/25" />
+
                   <span className="font-mono text-[10px] text-white/35">
                     No file selected
                   </span>
@@ -683,7 +787,10 @@ export function CodePanel({
           </div>
 
           {activeFile ? (
-            <div className="panel-scroll flex min-h-0 flex-1 overflow-auto">
+            <div
+              ref={editorRef}
+              className="panel-scroll flex min-h-0 flex-1 overflow-auto"
+            >
               {codeSearch.trim() ? (
                 <SearchResults
                   results={filteredCode}
@@ -704,11 +811,12 @@ export function CodePanel({
           )}
 
           {activeFile && (
-            <div className="flex h-7 shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-[#17191c] px-3">
+            <footer className="flex h-7 shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-[#17191c] px-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] text-white/35">
                   <Hash className="h-2.5 w-2.5" />
-                  {codeLines.length} {codeLines.length === 1 ? "line" : "lines"}
+                  {codeLines.length}{" "}
+                  {codeLines.length === 1 ? "line" : "lines"}
                 </span>
 
                 <span className="hidden truncate font-mono text-[9px] text-white/25 sm:inline">
@@ -720,7 +828,7 @@ export function CodePanel({
                 <LockKeyhole className="h-2.5 w-2.5" />
                 <span>Read only</span>
               </div>
-            </div>
+            </footer>
           )}
         </div>
       </div>
@@ -746,6 +854,7 @@ export function CodePanel({
                 >
                   {activeFile.path}
                 </p>
+
                 <p className="text-[8px] uppercase tracking-wider text-white/30">
                   {language} · {codeLines.length} lines · Read only
                 </p>
@@ -766,6 +875,7 @@ export function CodePanel({
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
                 )}
+
                 <span className="hidden sm:inline">
                   {copied ? "Copied" : copyError ? "Failed" : "Copy"}
                 </span>
@@ -793,6 +903,7 @@ export function CodePanel({
 
           <div className="flex h-8 shrink-0 items-center justify-between gap-3 rounded-b-xl border-x border-b border-white/10 bg-[#17191c] px-3 text-[9px] text-white/30 sm:px-4">
             <span className="truncate">{activeFile.path}</span>
+
             <span className="flex shrink-0 items-center gap-1.5">
               <LockKeyhole className="h-2.5 w-2.5" />
               Read only
@@ -801,6 +912,39 @@ export function CodePanel({
         </div>
       )}
     </aside>
+  );
+}
+
+function ToolbarButton({
+  children,
+  onClick,
+  label,
+  title,
+  active = false,
+  className = "",
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  label: string;
+  title?: string;
+  active?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={title}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
+        active
+          ? "border-accent/20 bg-accent/10 text-accent"
+          : "border-transparent text-ink/45 hover:border-line hover:bg-white hover:text-ink"
+      } ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -815,9 +959,7 @@ function LineNumbers({
     <div
       aria-hidden="true"
       className={`sticky left-0 z-10 min-h-full shrink-0 select-none border-r border-white/5 bg-[#101214] text-right font-mono leading-5 text-white/25 ${
-        expanded
-          ? "px-4 py-5 text-[10px]"
-          : "px-3 py-4 text-[10px]"
+        expanded ? "px-4 py-5 text-[10px]" : "px-3 py-4 text-[10px]"
       }`}
     >
       {Array.from({ length: count }, (_, index) => (
@@ -834,6 +976,7 @@ function EmptyCodeState() {
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
       <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
         <Code2 className="h-6 w-6 text-white/25" />
+
         <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-teal/70" />
       </div>
 
@@ -842,8 +985,8 @@ function EmptyCodeState() {
       </p>
 
       <p className="mt-1 max-w-xs text-[11px] leading-5 text-white/35">
-        Generate a website to explore its source files and inspect the
-        generated code.
+        Generate a website to explore its source files and inspect
+        the generated code.
       </p>
     </div>
   );
@@ -860,7 +1003,7 @@ function SearchResults({
     return (
       <div className="flex min-h-full flex-1 flex-col items-center justify-center px-6 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/5 bg-white/[0.03]">
-          <Search className="h-5 w-5 text-white/20" />
+          <FileSearch className="h-5 w-5 text-white/20" />
         </div>
 
         <p className="mt-3 text-xs font-semibold text-white/50">
