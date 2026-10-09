@@ -1,10 +1,37 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.promptSchema = exports.createProjectSchema = void 0;
-const zod_1 = require("zod");
-exports.createProjectSchema = zod_1.z.object({
-    name: zod_1.z.string().trim().min(2).max(80),
-    description: zod_1.z.string().trim().max(240).default(""),
-    initialPrompt: zod_1.z.string().trim().min(10).max(2_000),
+
+import { z } from "zod";
+
+export const createProjectSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Project name must be at least 2 characters.")
+    .max(80, "Project name cannot exceed 80 characters."),
+
+  description: z
+    .string()
+    .trim()
+    .max(240, "Description cannot exceed 240 characters.")
+    .default(""),
+
+  initialPrompt: z
+    .string()
+    .trim()
+    .min(10, "Initial prompt must be at least 10 characters.")
+    .max(2000, "Initial prompt cannot exceed 2000 characters."),
 });
-exports.promptSchema = zod_1.z.object({ prompt: zod_1.z.string().trim().min(2).max(2_000) });
+
+export const promptSchema = z.object({
+  prompt: z
+    .string()
+    .trim()
+    .min(2, "Prompt must be at least 2 characters.")
+    .max(2000, "Prompt cannot exceed 2000 characters."),
+});
+
+// TypeScript types inferred from the schemas
+export type CreateProjectInput = z.infer<
+  typeof createProjectSchema
+>;
+
+export type PromptInput = z.infer<typeof promptSchema>;
