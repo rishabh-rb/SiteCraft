@@ -1,4 +1,3 @@
-
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -45,8 +44,7 @@ function expectInvalid(
 
 test("accepts a valid prompt", () => {
   expectValid(promptSchema, {
-    prompt:
-      "Create a modern cafe website with a menu and contact page",
+    prompt: "Create a modern cafe website with a menu and contact page",
   });
 });
 
@@ -83,9 +81,7 @@ test("accepts a long descriptive prompt", () => {
 ========================================================= */
 
 test("rejects an empty prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: "",
-  });
+  expectInvalid(promptSchema, { prompt: "" });
 });
 
 test("rejects a missing prompt", () => {
@@ -93,33 +89,23 @@ test("rejects a missing prompt", () => {
 });
 
 test("rejects an undefined prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: undefined,
-  });
+  expectInvalid(promptSchema, { prompt: undefined });
 });
 
 test("rejects a null prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: null,
-  });
+  expectInvalid(promptSchema, { prompt: null });
 });
 
 test("rejects a whitespace-only prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: "   ",
-  });
+  expectInvalid(promptSchema, { prompt: "   " });
 });
 
 test("rejects a tab-only prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: "\t\t",
-  });
+  expectInvalid(promptSchema, { prompt: "\t\t" });
 });
 
 test("rejects a newline-only prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: "\n\n",
-  });
+  expectInvalid(promptSchema, { prompt: "\n\n" });
 });
 
 /* =========================================================
@@ -127,35 +113,25 @@ test("rejects a newline-only prompt", () => {
 ========================================================= */
 
 test("rejects a numeric prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: 123,
-  });
+  expectInvalid(promptSchema, { prompt: 123 });
 });
 
 test("rejects a boolean prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: true,
-  });
+  expectInvalid(promptSchema, { prompt: true });
 });
 
 test("rejects an array prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: ["Create a website"],
-  });
+  expectInvalid(promptSchema, { prompt: ["Create a website"] });
 });
 
 test("rejects an object prompt", () => {
   expectInvalid(promptSchema, {
-    prompt: {
-      text: "Create a website",
-    },
+    prompt: { text: "Create a website" },
   });
 });
 
-test("rejects a symbol-like invalid value", () => {
-  expectInvalid(promptSchema, {
-    prompt: BigInt(123),
-  });
+test("rejects a bigint prompt", () => {
+  expectInvalid(promptSchema, { prompt: BigInt(123) });
 });
 
 test("rejects null prompt input", () => {
@@ -224,9 +200,7 @@ test("rejects a missing project name", () => {
 });
 
 test("rejects a missing initial prompt", () => {
-  expectInvalid(createProjectSchema, {
-    name: "Cafe",
-  });
+  expectInvalid(createProjectSchema, { name: "Cafe" });
 });
 
 test("rejects an empty project name", () => {
@@ -340,9 +314,7 @@ test("rejects array initial prompt", () => {
 
 test("rejects object project name", () => {
   expectInvalid(createProjectSchema, {
-    name: {
-      value: "Cafe",
-    },
+    name: { value: "Cafe" },
     initialPrompt: "Create a cafe website",
   });
 });
@@ -350,9 +322,7 @@ test("rejects object project name", () => {
 test("rejects object initial prompt", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: {
-      value: "Create a cafe website",
-    },
+    initialPrompt: { value: "Create a cafe website" },
   });
 });
 
@@ -398,8 +368,7 @@ test("rejects when project name is valid but prompt is invalid", () => {
 test("rejects when prompt is valid but project name is invalid", () => {
   expectInvalid(createProjectSchema, {
     name: "",
-    initialPrompt:
-      "Create a modern cafe website with a menu",
+    initialPrompt: "Create a modern cafe website with a menu",
   });
 });
 
@@ -473,10 +442,7 @@ test("prompt schema does not mutate valid input unexpectedly", () => {
     prompt: "Create a modern portfolio website",
   };
 
-  const original = {
-    ...input,
-  };
-
+  const original = { ...input };
   const result = promptSchema.safeParse(input);
 
   assert.equal(result.success, true);
@@ -490,10 +456,7 @@ test("project schema does not mutate valid input unexpectedly", () => {
       "Create a modern portfolio website with projects and contact page",
   };
 
-  const original = {
-    ...input,
-  };
-
+  const original = { ...input };
   const result = createProjectSchema.safeParse(input);
 
   assert.equal(result.success, true);
