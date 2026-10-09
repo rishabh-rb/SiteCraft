@@ -28,7 +28,7 @@ import {
 } from "@sitecraft/ml";
 
 /* =========================================================
-   Constants
+   Types and Constants
 ========================================================= */
 
 const MAX_PROMPT_LENGTH = 2_000;
@@ -51,11 +51,50 @@ const DEFAULT_RESPONSIVE_RULES = [
   "Use accessible colors, labels, and semantic HTML",
 ];
 
+type AnyRecord = Record<string, unknown>;
+
+type QAIssue = {
+  severity: "error" | "warning";
+  message: string;
+};
+
+type LocalQAResult = {
+  passed: boolean;
+  score: number;
+  issues: QAIssue[];
+};
+
+type WebsiteFile = {
+  path: string;
+  language: string;
+  content: string;
+};
+
+type WebsiteAsset = {
+  kind: string;
+  description: string;
+  url: string;
+  alt?: string;
+};
+
+type WebsitePlan = ReturnType<typeof createLocalPlan>;
+type WebsiteDesign = ReturnType<typeof createLocalDesign>;
+type WebsiteContent = ReturnType<typeof createLocalContent>;
+type WebsiteCode = ReturnType<typeof createLocalCode>;
+
+type WebsiteData = {
+  html: string;
+  files: WebsiteFile[];
+  plan: WebsitePlan;
+  design: WebsiteDesign;
+  content: WebsiteContent;
+  assets: WebsiteAsset[];
+  qa?: LocalQAResult | unknown;
+};
+
 /* =========================================================
    Shared Helpers
 ========================================================= */
-
-type AnyRecord = Record<string, any>;
 
 function getProvider() {
   return createProvider();
@@ -72,11 +111,13 @@ function validatePrompt(prompt: string): void {
     throw new Error("Prompt must be a string.");
   }
 
-  if (!prompt.trim()) {
+  const trimmed = prompt.trim();
+
+  if (!trimmed) {
     throw new Error("Prompt cannot be empty.");
   }
 
-  if (prompt.trim().length > MAX_PROMPT_LENGTH) {
+  if (trimmed.length > MAX_PROMPT_LENGTH) {
     throw new Error(
       `Prompt cannot exceed ${MAX_PROMPT_LENGTH} characters.`
     );
@@ -108,21 +149,22 @@ function safeString(
    Quality Assurance
 ========================================================= */
 
-function qaSite(site: any) {
-  const issues: Array<{
-    severity: "error" | "warning";
-    message: string;
-  }> = [];
+function qaSite(site: unknown): LocalQAResult {
+  const issues: QAIssue[] = [];
+  const record = asRecord(site);
 
-  const pages = Array.isArray(site.plan?.pages)
-    ? site.plan.pages
+  const plan = asRecord(record.plan);
+  const pages = Array.isArray(plan.pages)
+    ? plan.pages
     : [];
 
   const html =
-    typeof site.html === "string" ? site.html : "";
+    typeof record.html === "string"
+      ? record.html
+      : "";
 
-  const files = Array.isArray(site.files)
-    ? site.files
+  const files = Array.isArray(record.files)
+    ? record.files
     : [];
 
   if (pages.length === 0) {
@@ -138,14 +180,16 @@ function qaSite(site: any) {
   ) {
     issues.push({
       severity: "error",
-      message: "Preview markup is missing a main landmark or body element.",
+      message:
+        "Preview markup is missing a main landmark or body element.",
     });
   }
 
   if (!/<meta[^>]+name=["']viewport["']/i.test(html)) {
     issues.push({
       severity: "error",
-      message: "The preview is missing a responsive viewport meta tag.",
+      message:
+        "The preview is missing a responsive viewport meta tag.",
     });
   }
 
@@ -155,18 +199,29 @@ function qaSite(site: any) {
   ) {
     issues.push({
       severity: "warning",
-      message: "Generated images should include meaningful alt text.",
+      message:
+        "Generated images should include meaningful alt text.",
     });
   }
 
-  if (!files.some((file: any) => file.path === "README.md")) {
+  const hasReadme = files.some(
+    (file: unknown) =>
+      asRecord(file).path === "README.md"
+  );
+
+  if (!hasReadme) {
     issues.push({
       severity: "warning",
       message: "Export package README.md is missing.",
     });
   }
 
-  if (!files.some((file: any) => file.path === "package.json")) {
+  const hasPackageJson = files.some(
+    (file: unknown) =>
+      asRecord(file).path === "package.json"
+  );
+
+  if (!hasPackageJson) {
     issues.push({
       severity: "warning",
       message: "Export package.json is missing.",
@@ -194,11 +249,11 @@ function qaSite(site: any) {
 }
 
 function buildSite(
-  plan: any,
-  design: any,
-  content: any,
-  code: any,
-  assets: any[] = []
+  plan: WebsitePlan,
+  design: WebsiteDesign,
+  content: WebsiteContent,
+  code: WebsiteCode,
+  assets: WebsiteAsset[] = []
 ) {
   return {
     html: code.html,
@@ -217,13 +272,13 @@ function buildSite(
    Agent Execution
 ========================================================= */
 
-async function runAgent(
+async function runAgent<T>(
   projectId: string,
   agent: string,
   userPrompt: string,
   input: unknown,
-  outputFactory: () => Promise<any>
-) {
+  outputFactory: () => Promise<T>
+): Promise<T> {
   await addGeneration(projectId, {
     agent,
     userPrompt,
@@ -316,23 +371,29 @@ function flattenComponentNames(value: unknown): string[] {
   const names: string[] = [];
 
   for (const key of ["name", "type", "layout"]) {
-    if (typeof record[key] === "string") {
-      names.push(record[key]);
+    const item = record[key];
+
+    if (typeof item === "string") {
+      names.push(item);
     }
   }
 
   for (const key of ["components", "children"]) {
-    if (Array.isArray(record[key])) {
+    const items = record[key];
+
+    if (Array.isArray(items)) {
       names.push(
-        ...record[key].flatMap(flattenComponentNames)
+        ...items.flatMap(flattenComponentNames)
       );
     }
   }
 
-  if (Array.isArray(record.elements)) {
+  const elements = record.elements;
+
+  if (Array.isArray(elements)) {
     names.push(
-      ...record.elements.filter(
-        (item: unknown): item is string =>
+      ...elements.filter(
+        (item): item is string =>
           typeof item === "string"
       )
     );
@@ -343,7 +404,7 @@ function flattenComponentNames(value: unknown): string[] {
 
 function normalizeDesignSystem(
   raw: unknown,
-  plan: any
+  plan: WebsitePlan
 ) {
   if (!isRecord(raw)) {
     throw new Error("UI designer returned invalid data.");
@@ -353,11 +414,15 @@ function normalizeDesignSystem(
   const radii = asRecord(tokens.radii);
   const shadows = asRecord(tokens.shadows);
   const layout = asRecord(raw.layout);
+  const spacing = asRecord(tokens.spacing);
 
   const responsiveRules = Array.isArray(raw.responsiveRules)
     ? raw.responsiveRules
-        .filter((rule: unknown) => typeof rule === "string")
-        .map((rule: string) => rule.trim())
+        .filter(
+          (rule): rule is string =>
+            typeof rule === "string"
+        )
+        .map((rule) => rule.trim())
         .filter(Boolean)
     : DEFAULT_RESPONSIVE_RULES;
 
@@ -388,7 +453,7 @@ function normalizeDesignSystem(
       ),
 
       spacing: String(
-        asRecord(tokens.spacing).md ??
+        spacing.md ??
           tokens.spacing ??
           "1.5rem"
       ),
@@ -408,8 +473,8 @@ function normalizeDesignSystem(
 }
 
 async function designWebsite(
-  plan: any,
-  content: any,
+  plan: WebsitePlan,
+  content: WebsiteContent,
   prompt: string
 ) {
   const provider = getProvider();
@@ -453,7 +518,7 @@ async function designWebsite(
 
 function normalizeContentBundle(
   raw: unknown,
-  plan: any
+  plan: WebsitePlan
 ) {
   if (!isRecord(raw)) {
     throw new Error("Content agent returned invalid data.");
@@ -467,7 +532,7 @@ function normalizeContentBundle(
   const sections = Array.isArray(raw.sections)
     ? raw.sections
         .filter(isRecord)
-        .map((section: AnyRecord) => ({
+        .map((section) => ({
           title: safeString(
             section.title ??
               section.name ??
@@ -484,29 +549,27 @@ function normalizeContentBundle(
           items: Array.isArray(section.items)
             ? section.items
                 .filter(
-                  (item: unknown) =>
-                    item !== null && item !== undefined
+                  (item) =>
+                    item !== null &&
+                    item !== undefined
                 )
                 .map(String)
                 .filter(Boolean)
             : undefined,
         }))
-        .filter(
-          (section: any) =>
-            section.title && section.body
-        )
+        .filter((section) => section.title && section.body)
     : [];
 
   const testimonials = Array.isArray(raw.testimonials)
     ? raw.testimonials
         .filter(isRecord)
-        .map((item: AnyRecord) => ({
+        .map((item) => ({
           quote: safeString(item.quote ?? item.text),
           name: safeString(item.name ?? item.author),
           role: safeString(item.role ?? item.title),
         }))
         .filter(
-          (item: any) =>
+          (item) =>
             item.quote && item.name && item.role
         )
     : [];
@@ -514,7 +577,7 @@ function normalizeContentBundle(
   const faq = Array.isArray(raw.faq)
     ? raw.faq
         .filter(isRecord)
-        .map((item: AnyRecord) => ({
+        .map((item) => ({
           question: safeString(
             item.question ?? item.title
           ),
@@ -523,14 +586,13 @@ function normalizeContentBundle(
           ),
         }))
         .filter(
-          (item: any) =>
-            item.question && item.answer
+          (item) => item.question && item.answer
         )
     : [];
 
   const seo = asRecord(raw.seo);
 
-  const normalized = {
+  return {
     heroTitle: safeString(
       raw.heroTitle,
       plan.siteName
@@ -578,12 +640,10 @@ function normalizeContentBundle(
       ),
     },
   };
-
-  return normalized;
 }
 
 async function contentFor(
-  plan: any,
+  plan: WebsitePlan,
   prompt: string
 ) {
   const provider = getProvider();
@@ -643,10 +703,10 @@ function inferLanguage(path: string): string {
 
 function normalizeCodeBundle(
   raw: unknown,
-  plan: any,
-  design: any,
-  content: any,
-  assets: any[]
+  plan: WebsitePlan,
+  design: WebsiteDesign,
+  content: WebsiteContent,
+  assets: WebsiteAsset[]
 ) {
   if (!isRecord(raw) && !Array.isArray(raw)) {
     throw new Error("Code generation returned invalid data.");
@@ -675,7 +735,7 @@ function normalizeCodeBundle(
 
   const files = rawFiles
     .filter(isRecord)
-    .map((file: AnyRecord) => {
+    .map((file) => {
       const path = safeString(
         file.path ??
           file.filePath ??
@@ -697,7 +757,7 @@ function normalizeCodeBundle(
       };
     })
     .filter(
-      (file: any) =>
+      (file) =>
         file.path &&
         file.content &&
         !file.path.startsWith("/") &&
@@ -713,7 +773,7 @@ function normalizeCodeBundle(
         ? files
         : localDefault.files,
 
-    assets: assets.map((asset: any) => ({
+    assets: assets.map((asset) => ({
       kind: asset.kind,
       description: asset.description,
       url: asset.url,
@@ -722,11 +782,11 @@ function normalizeCodeBundle(
 }
 
 async function codeFor(
-  plan: any,
-  design: any,
-  content: any,
+  plan: WebsitePlan,
+  design: WebsiteDesign,
+  content: WebsiteContent,
   prompt: string,
-  assets: any[]
+  assets: WebsiteAsset[]
 ) {
   const provider = getProvider();
 
@@ -740,7 +800,7 @@ async function codeFor(
   }
 
   try {
-    const assetSummary = assets.map((asset: any) => ({
+    const assetSummary = assets.map((asset) => ({
       kind: asset.kind,
       url: asset.url,
       alt: asset.alt,
@@ -796,7 +856,7 @@ async function codeFor(
 ========================================================= */
 
 async function qaFor(
-  site: any,
+  site: unknown,
   prompt: string
 ) {
   const provider = getProvider();
@@ -925,21 +985,20 @@ export async function generateProject(
       projectId,
       "qa",
       prompt,
-      { files: code.files.map((file: any) => file.path) },
+      {
+        files: code.files.map((file) => file.path),
+      },
       () => qaFor(site, prompt)
     );
 
     // 7. Retry when QA finds errors
     let attempts = 1;
 
-    while (
-      !qa.passed &&
-      attempts < MAX_QA_ATTEMPTS
-    ) {
+    while (!qa.passed && attempts < MAX_QA_ATTEMPTS) {
       attempts += 1;
 
       const issues = qa.issues
-        .map((issue: any) => issue.message)
+        .map((issue) => issue.message)
         .join("; ");
 
       const retryPrompt =
@@ -973,7 +1032,9 @@ export async function generateProject(
           projectId,
           "qa",
           retryPrompt,
-          { files: code.files.map((file: any) => file.path) },
+          {
+            files: code.files.map((file) => file.path),
+          },
           () => qaFor(site, retryPrompt)
         );
       } catch (error) {
@@ -1035,37 +1096,25 @@ export async function generateProject(
 ========================================================= */
 
 function reviseSite(
-  site: any,
+  site: WebsiteData,
   prompt: string
 ) {
   const lower = prompt.toLowerCase();
   const nextPlan = structuredClone(site.plan);
 
-  if (
-    lower.includes("blue") ||
-    lower.includes("navy")
-  ) {
+  if (lower.includes("blue") || lower.includes("navy")) {
     nextPlan.colorPalette.primary = "#3b82f6";
   }
 
-  if (
-    lower.includes("green") ||
-    lower.includes("emerald")
-  ) {
+  if (lower.includes("green") || lower.includes("emerald")) {
     nextPlan.colorPalette.primary = "#10b981";
   }
 
-  if (
-    lower.includes("orange") ||
-    lower.includes("amber")
-  ) {
+  if (lower.includes("orange") || lower.includes("amber")) {
     nextPlan.colorPalette.primary = "#f97316";
   }
 
-  if (
-    lower.includes("purple") ||
-    lower.includes("violet")
-  ) {
+  if (lower.includes("purple") || lower.includes("violet")) {
     nextPlan.colorPalette.primary = "#8b5cf6";
   }
 
@@ -1155,7 +1204,11 @@ export async function reviseProject(
 
   const previous = website.generatedCode;
 
-  if (!previous?.plan || !previous?.design || !previous?.content) {
+  if (
+    !previous?.plan ||
+    !previous?.design ||
+    !previous?.content
+  ) {
     throw new Error(
       "The existing website data is incomplete and cannot be revised."
     );
@@ -1169,7 +1222,7 @@ export async function reviseProject(
 
   const provider = getProvider();
 
-  let revised: any;
+  let revised: unknown;
 
   if (provider.config.configured) {
     revised = await runAgent(
@@ -1189,7 +1242,7 @@ export async function reviseProject(
             previous.plan,
             previous.design,
             previous.content,
-            previous.assets || []
+            previous.assets ?? []
           );
 
           const parsed =
@@ -1201,7 +1254,7 @@ export async function reviseProject(
               previous.design,
               previous.content,
               parsed.data,
-              previous.assets || []
+              previous.assets ?? []
             );
           }
         } catch (error) {
@@ -1211,7 +1264,10 @@ export async function reviseProject(
           );
         }
 
-        return reviseSite(previous, prompt);
+        return reviseSite(
+          previous as WebsiteData,
+          prompt
+        );
       }
     );
   } else {
@@ -1220,7 +1276,8 @@ export async function reviseProject(
       "revision",
       prompt,
       { previousVersion: website.version },
-      async () => reviseSite(previous, prompt)
+      async () =>
+        reviseSite(previous as WebsiteData, prompt)
     );
   }
 
@@ -1233,22 +1290,24 @@ export async function reviseProject(
   );
 
   const finalSite = {
-    ...revised,
+    ...asRecord(revised),
     qa,
   };
 
   const nextVersion =
-    (Number.isInteger(website.version) && website.version >= 1
-      ? website.version
-      : 1) + 1;
+    Number.isInteger(website.version) && website.version >= 1
+      ? website.version + 1
+      : 2;
+
+  const finalPlan = asRecord(finalSite.plan);
 
   await saveWebsite(projectId, {
-    title: finalSite.plan.siteName,
-    description: finalSite.plan.siteDescription,
-    theme: finalSite.plan.theme,
-    colorPalette: finalSite.plan.colorPalette,
-    fontFamily: finalSite.plan.fontFamily,
-    structure: finalSite.plan,
+    title: safeString(finalPlan.siteName),
+    description: safeString(finalPlan.siteDescription),
+    theme: finalPlan.theme,
+    colorPalette: finalPlan.colorPalette,
+    fontFamily: finalPlan.fontFamily,
+    structure: finalPlan,
     generatedCode: finalSite,
     version: nextVersion,
   });
