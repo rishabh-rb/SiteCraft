@@ -8,17 +8,16 @@ import {
 } from "@sitecraft/ml";
 
 test(
-  "surfaces NVIDIA model unavailable errors with configuration guidance",
+  "throws MODEL_UNAVAILABLE when the NVIDIA model does not exist",
   async () => {
     const originalFetch = globalThis.fetch;
 
     try {
-      globalThis.fetch = (async () => {
-        return new Response(
+      globalThis.fetch = (async () =>
+        new Response(
           JSON.stringify({
             error: {
-              message:
-                'The model "missing-model" does not exist.',
+              message: 'The model "missing-model" does not exist.',
             },
           }),
           {
@@ -27,8 +26,7 @@ test(
               "Content-Type": "application/json",
             },
           }
-        );
-      }) as typeof fetch;
+        )) as typeof fetch;
 
       const provider = createProvider({
         NVIDIA_API_KEY: "nvidia-test-key",
@@ -39,21 +37,9 @@ test(
         () => provider.generateJson("{}", "planner"),
         (error: unknown) => {
           assert.ok(error instanceof ProviderError);
-
-          assert.equal(
-            error.code,
-            "MODEL_UNAVAILABLE"
-          );
-
-          assert.match(
-            error.message,
-            /missing-model/i
-          );
-
-          assert.match(
-            error.message,
-            /NVIDIA_MODEL/
-          );
+          assert.equal(error.code, "MODEL_UNAVAILABLE");
+          assert.match(error.message, /missing-model/i);
+          assert.match(error.message, /NVIDIA_MODEL/);
 
           return true;
         }
@@ -65,13 +51,13 @@ test(
 );
 
 test(
-  "surfaces malformed NVIDIA responses",
+  "throws MALFORMED_RESPONSE when NVIDIA returns invalid JSON content",
   async () => {
     const originalFetch = globalThis.fetch;
 
     try {
-      globalThis.fetch = (async () => {
-        return new Response(
+      globalThis.fetch = (async () =>
+        new Response(
           JSON.stringify({
             choices: [
               {
@@ -87,8 +73,7 @@ test(
               "Content-Type": "application/json",
             },
           }
-        );
-      }) as typeof fetch;
+        )) as typeof fetch;
 
       const provider = createProvider({
         NVIDIA_API_KEY: "nvidia-test-key",
@@ -99,11 +84,7 @@ test(
         () => provider.generateJson("{}", "planner"),
         (error: unknown) => {
           assert.ok(error instanceof ProviderError);
-
-          assert.equal(
-            error.code,
-            "MALFORMED_RESPONSE"
-          );
+          assert.equal(error.code, "MALFORMED_RESPONSE");
 
           return true;
         }
