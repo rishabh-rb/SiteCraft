@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -20,7 +21,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
-  Tablet,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -39,12 +39,40 @@ interface PreviewPanelProps {
 
 type PreviewState = "loading" | "ready" | "error";
 
+interface PreviewActionProps {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  dark?: boolean;
+  className?: string;
+}
+
+interface PreviewStatusProps {
+  working: boolean;
+  refreshing: boolean;
+  state: PreviewState;
+  dark?: boolean;
+}
+
+interface PreviewFrameProps {
+  html: string;
+  title: string;
+  device: Device;
+  refreshKey: string | number;
+  onLoad: () => void;
+  onError: () => void;
+  fullscreen?: boolean;
+}
+
 /* =========================================================
    CONFIGURATION
 ========================================================= */
 
 const PREVIEW_TIMEOUT = 15000;
 const REFRESH_MIN_DURATION = 450;
+const BLOB_URL_LIFETIME = 60000;
 
 const deviceClass: Record<Device, string> = {
   desktop: "w-full max-w-[1400px]",
@@ -65,7 +93,7 @@ const deviceLabels: Record<Device, string> = {
 };
 
 /* =========================================================
-   COMPONENT
+   MAIN COMPONENT
 ========================================================= */
 
 export function PreviewPanel({
@@ -79,27 +107,34 @@ export function PreviewPanel({
   const [previewState, setPreviewState] =
     useState<PreviewState>("loading");
 
-  const refreshTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const dialogId = useId();
 
-  const timeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const refreshTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const timeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshStartedRef = useRef(0);
   const generationRef = useRef(0);
 
-  const revokeUrlTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  const blobUrlsRef = useRef<Set<string>>(new Set());
 
-  const activeBlobUrlRef = useRef<string | null>(null);
+  const blobUrlTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
 
-  const hasWebsite = Boolean(website?.html);
+  const hasWebsite =
+    typeof website?.html === "string" &&
+    website.html.trim().length > 0;
+
+  const siteName =
+    website?.plan?.siteName || "Website Preview";
+
+  const html = website?.html ?? "";
 
   /* =======================================================
-     TIMER CLEANUP
+     TIMER UTILITIES
   ======================================================= */
 
   const clearRefreshTimer = useCallback(() => {
@@ -116,32 +151,35 @@ export function PreviewPanel({
     }
   }, []);
 
-  const clearBlobUrl = useCallback(() => {
-    if (revokeUrlTimerRef.current !== null) {
-      clearTimeout(revokeUrlTimerRef.current);
-      revokeUrlTimerRef.current = null;
-    }
+  const clearBlobUrls = useCallback(() => {
+    blobUrlTimersRef.current.forEach((timer) => {
+      clearTimeout(timer);
+    });
 
-    if (activeBlobUrlRef.current) {
-      URL.revokeObjectURL(activeBlobUrlRef.current);
-      activeBlobUrlRef.current = null;
-    }
+    blobUrlTimersRef.current.clear();
+
+    blobUrlsRef.current.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
+
+    blobUrlsRef.current.clear();
   }, []);
 
   useEffect(() => {
     return () => {
+      generationRef.current += 1;
       clearRefreshTimer();
       clearPreviewTimeout();
-      clearBlobUrl();
+      clearBlobUrls();
     };
   }, [
     clearRefreshTimer,
     clearPreviewTimeout,
-    clearBlobUrl,
+    clearBlobUrls,
   ]);
 
   /* =======================================================
-     PREVIEW LOAD LIFECYCLE
+     PREVIEW LOADING LIFECYCLE
   ======================================================= */
 
   const beginLoading = useCallback(() => {
@@ -152,10 +190,12 @@ export function PreviewPanel({
     setPreviewState("loading");
 
     timeoutRef.current = setTimeout(() => {
-      if (generationRef.current !== currentGeneration) return;
+      if (generationRef.current !== currentGeneration) {
+        return;
+      }
 
       setPreviewState((current) =>
-        current === "loading" ? "error" : current
+        current === "loading" ? "error" : current,
       );
 
       timeoutRef.current = null;
@@ -165,9 +205,14 @@ export function PreviewPanel({
   useEffect(() => {
     if (!hasWebsite) {
       generationRef.current += 1;
+
       clearPreviewTimeout();
+      clearRefreshTimer();
+
       setPreviewState("loading");
       setRefreshing(false);
+      setFullscreen(false);
+
       return;
     }
 
@@ -178,14 +223,16 @@ export function PreviewPanel({
       clearPreviewTimeout();
     };
   }, [
-    website?.html,
+    html,
     hasWebsite,
     beginLoading,
     clearPreviewTimeout,
+    clearRefreshTimer,
   ]);
 
   const handlePreviewLoad = useCallback(() => {
     clearPreviewTimeout();
+
     setPreviewState("ready");
 
     const elapsed =
@@ -193,7 +240,7 @@ export function PreviewPanel({
 
     const remaining = Math.max(
       0,
-      REFRESH_MIN_DURATION - elapsed
+      REFRESH_MIN_DURATION - elapsed,
     );
 
     clearRefreshTimer();
@@ -206,9 +253,10 @@ export function PreviewPanel({
 
   const handlePreviewError = useCallback(() => {
     clearPreviewTimeout();
+    clearRefreshTimer();
+
     setPreviewState("error");
     setRefreshing(false);
-    clearRefreshTimer();
   }, [clearPreviewTimeout, clearRefreshTimer]);
 
   /* =======================================================
@@ -224,7 +272,7 @@ export function PreviewPanel({
 
     setRefreshing(true);
     beginLoading();
-    setRefreshKey((key) => key + 1);
+    setRefreshKey((current) => current + 1);
 
     refreshTimerRef.current = setTimeout(() => {
       setRefreshing(false);
@@ -254,6 +302,7 @@ export function PreviewPanel({
     if (!fullscreen) return;
 
     const previousOverflow = document.body.style.overflow;
+
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -266,7 +315,11 @@ export function PreviewPanel({
 
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
+
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
     };
   }, [fullscreen, closeFullscreen]);
 
@@ -275,62 +328,61 @@ export function PreviewPanel({
   ======================================================= */
 
   const openInNewTab = useCallback(() => {
-    if (!website?.html) return;
+    if (!hasWebsite) return;
 
     let previewWindow: Window | null = null;
-    let url: string | null = null;
+    let blobUrl: string | null = null;
 
     try {
       // Open synchronously to reduce popup-blocker issues.
       previewWindow = window.open("", "_blank");
 
-      if (!previewWindow) {
-        return;
-      }
+      if (!previewWindow) return;
 
-      const blob = new Blob([website.html], {
+      const blob = new Blob([html], {
         type: "text/html;charset=utf-8",
       });
 
-      url = URL.createObjectURL(blob);
+      blobUrl = URL.createObjectURL(blob);
 
-      // Remove access to the opener before navigating.
+      blobUrlsRef.current.add(blobUrl);
+
       try {
         previewWindow.opener = null;
       } catch {
         // Some browser configurations restrict this assignment.
       }
 
-      previewWindow.location.replace(url);
+      previewWindow.location.replace(blobUrl);
 
-      if (revokeUrlTimerRef.current !== null) {
-        clearTimeout(revokeUrlTimerRef.current);
-      }
+      const urlToRevoke = blobUrl;
 
-      if (activeBlobUrlRef.current) {
-        URL.revokeObjectURL(activeBlobUrlRef.current);
-      }
+      const timer = setTimeout(() => {
+        URL.revokeObjectURL(urlToRevoke);
 
-      activeBlobUrlRef.current = url;
+        blobUrlsRef.current.delete(urlToRevoke);
+        blobUrlTimersRef.current.delete(urlToRevoke);
+      }, BLOB_URL_LIFETIME);
 
-      revokeUrlTimerRef.current = setTimeout(() => {
-        if (activeBlobUrlRef.current === url) {
-          URL.revokeObjectURL(url!);
-          activeBlobUrlRef.current = null;
+      blobUrlTimersRef.current.set(blobUrl, timer);
+    } catch {
+      if (blobUrl) {
+        const timer = blobUrlTimersRef.current.get(blobUrl);
+
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          blobUrlTimersRef.current.delete(blobUrl);
         }
 
-        revokeUrlTimerRef.current = null;
-      }, 60000);
-    } catch {
-      if (url) {
-        URL.revokeObjectURL(url);
+        URL.revokeObjectURL(blobUrl);
+        blobUrlsRef.current.delete(blobUrl);
       }
 
       if (previewWindow && !previewWindow.closed) {
         previewWindow.close();
       }
     }
-  }, [website?.html]);
+  }, [hasWebsite, html]);
 
   /* =======================================================
      RENDER
@@ -341,8 +393,7 @@ export function PreviewPanel({
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#d8d1c5]"
       aria-label="Website preview"
     >
-      {/* TOP TOOLBAR */}
-
+      {/* Main toolbar */}
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-white px-3 shadow-sm sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div
@@ -356,18 +407,22 @@ export function PreviewPanel({
               className={`h-4 w-4 ${
                 hasWebsite ? "text-accent" : "text-ink/30"
               }`}
+              aria-hidden="true"
             />
           </div>
 
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="truncate text-sm font-black tracking-tight text-ink">
-                {website?.plan?.siteName || "Website Preview"}
+                {siteName}
               </h2>
 
               {hasWebsite && (
                 <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 sm:inline-flex">
-                  <span className="relative flex h-1.5 w-1.5">
+                  <span
+                    className="relative flex h-1.5 w-1.5"
+                    aria-hidden="true"
+                  >
                     <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/50" />
                     <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   </span>
@@ -376,7 +431,7 @@ export function PreviewPanel({
               )}
             </div>
 
-            <p className="hidden truncate text-[10px] text-ink/40 sm:block">
+            <p className="hidden truncate text-[10px] text-ink/45 sm:block">
               {hasWebsite
                 ? "Interactive generated website"
                 : "Your generated website will appear here"}
@@ -384,8 +439,7 @@ export function PreviewPanel({
           </div>
         </div>
 
-        {/* DESKTOP DEVICE CONTROLS */}
-
+        {/* Desktop device controls */}
         <div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
           <DevicePreview
             device={device}
@@ -393,8 +447,7 @@ export function PreviewPanel({
           />
         </div>
 
-        {/* ACTIONS */}
-
+        {/* Toolbar actions */}
         <div className="flex shrink-0 items-center gap-1">
           <PreviewAction
             label="Refresh preview"
@@ -403,9 +456,11 @@ export function PreviewPanel({
             active={refreshing}
           >
             <RefreshCw
-              className={`h-4 w-4 ${
-                refreshing ? "animate-spin" : "group-hover:rotate-45"
-              } transition-transform duration-300`}
+              className={`h-4 w-4 transition-transform duration-300 ${
+                refreshing
+                  ? "animate-spin"
+                  : "group-hover:rotate-45"
+              }`}
             />
           </PreviewAction>
 
@@ -419,8 +474,7 @@ export function PreviewPanel({
         </div>
       </header>
 
-      {/* MOBILE DEVICE CONTROLS */}
-
+      {/* Mobile device controls */}
       <div className="flex shrink-0 justify-center border-b border-line bg-white px-3 py-2 md:hidden">
         <DevicePreview
           device={device}
@@ -428,8 +482,7 @@ export function PreviewPanel({
         />
       </div>
 
-      {/* PREVIEW AREA */}
-
+      {/* Preview viewport */}
       <main className="panel-scroll relative flex min-h-0 flex-1 justify-center overflow-auto p-3 sm:p-5 lg:p-6">
         {hasWebsite ? (
           <div
@@ -444,46 +497,13 @@ export function PreviewPanel({
                     : "rounded-xl border-black/15 shadow-[0_20px_60px_rgba(0,0,0,0.14)]"
               } ${deviceHeight[device]}`}
             >
-              {/* MOBILE NOTCH */}
-
-              {device === "mobile" && (
-                <div
-                  className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-28 -translate-x-1/2 rounded-b-2xl bg-[#222]"
-                  aria-hidden="true"
-                />
-              )}
-
-              {/* BROWSER CHROME */}
-
-              {device !== "mobile" && (
-                <div className="flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-                  </div>
-
-                  <div className="mx-auto flex max-w-[55%] items-center gap-1.5 truncate rounded-md border border-black/5 bg-white px-3 py-1 text-[8px] text-black/35 shadow-sm">
-                    <Globe2 className="h-2.5 w-2.5 shrink-0" />
-                    <span className="truncate">preview.local</span>
-                  </div>
-
-                  <div className="w-[42px]" />
-                </div>
-              )}
-
-              {/* WEBSITE IFRAME */}
-
-              <iframe
-                key={refreshKey}
-                title={`${website?.plan?.siteName || "Generated"} website preview`}
-                sandbox="allow-scripts allow-forms allow-popups allow-modals"
-                referrerPolicy="no-referrer"
-                loading="eager"
+              <PreviewFrame
+                html={html}
+                title={`${siteName} preview`}
+                device={device}
+                refreshKey={refreshKey}
                 onLoad={handlePreviewLoad}
                 onError={handlePreviewError}
-                className="min-h-0 w-full flex-1 border-none bg-white"
-                srcDoc={website?.html ?? ""}
               />
 
               {(working || previewState === "loading") && (
@@ -500,14 +520,13 @@ export function PreviewPanel({
         )}
       </main>
 
-      {/* STATUS BAR */}
-
+      {/* Status bar */}
       {hasWebsite && (
         <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
-          <div className="flex min-w-0 items-center gap-3 text-ink/40">
+          <div className="flex min-w-0 items-center gap-3 text-ink/45">
             <span className="shrink-0">
               View:{" "}
-              <strong className="font-bold text-ink/60">
+              <strong className="font-bold text-ink/65">
                 {deviceLabels[device]}
               </strong>
             </span>
@@ -525,14 +544,18 @@ export function PreviewPanel({
         </footer>
       )}
 
-      {/* FULLSCREEN */}
-
+      {/* Fullscreen dialog */}
       {fullscreen && hasWebsite && (
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Fullscreen website preview"
+          aria-labelledby={`${dialogId}-title`}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeFullscreen();
+            }
+          }}
         >
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 rounded-t-xl border border-white/10 bg-[#151719] px-3 shadow-2xl sm:px-4">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -541,11 +564,14 @@ export function PreviewPanel({
               </div>
 
               <div className="min-w-0">
-                <h3 className="truncate text-xs font-bold text-white">
-                  {website?.plan?.siteName || "Website Preview"}
+                <h3
+                  id={`${dialogId}-title`}
+                  className="truncate text-xs font-bold text-white"
+                >
+                  {siteName}
                 </h3>
 
-                <p className="hidden text-[9px] text-white/35 sm:block">
+                <p className="hidden text-[9px] text-white/40 sm:block">
                   Fullscreen live preview
                 </p>
               </div>
@@ -604,43 +630,16 @@ export function PreviewPanel({
                   : device === "tablet"
                     ? "rounded-2xl border border-black/15 shadow-2xl"
                     : "rounded-xl border border-black/15 shadow-2xl"
-              }`}
+              } ${deviceHeight[device]}`}
             >
-              {device === "mobile" && (
-                <div className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-28 -translate-x-1/2 rounded-b-2xl bg-[#222]" />
-              )}
-
-              {device !== "mobile" && (
-                <div className="flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-                  </div>
-
-                  <div className="mx-auto flex max-w-[55%] items-center gap-1.5 truncate rounded-md border border-black/5 bg-white px-3 py-1 text-[8px] text-black/35 shadow-sm">
-                    <Globe2 className="h-2.5 w-2.5 shrink-0" />
-                    <span className="truncate">preview.local</span>
-                  </div>
-
-                  <div className="w-[42px]" />
-                </div>
-              )}
-
-              <iframe
-                key={`fullscreen-${refreshKey}`}
-                title="Fullscreen website preview"
-                sandbox="allow-scripts allow-forms allow-popups allow-modals"
-                referrerPolicy="no-referrer"
-                loading="eager"
+              <PreviewFrame
+                html={html}
+                title={`${siteName} fullscreen preview`}
+                device={device}
+                refreshKey={`fullscreen-${refreshKey}`}
                 onLoad={handlePreviewLoad}
                 onError={handlePreviewError}
-                className={`w-full flex-1 border-none bg-white ${
-                  device === "desktop"
-                    ? "min-h-full"
-                    : deviceHeight[device]
-                }`}
-                srcDoc={website?.html ?? ""}
+                fullscreen
               />
 
               {(working || previewState === "loading") && (
@@ -653,7 +652,7 @@ export function PreviewPanel({
             </div>
           </div>
 
-          <footer className="flex h-8 shrink-0 items-center justify-between rounded-b-xl border-x border-b border-white/10 bg-[#111315] px-3 text-[9px] text-white/30 sm:px-4">
+          <footer className="flex h-8 shrink-0 items-center justify-between rounded-b-xl border-x border-b border-white/10 bg-[#111315] px-3 text-[9px] text-white/40 sm:px-4">
             <span className="hidden sm:inline">
               Press ESC to exit fullscreen
             </span>
@@ -672,6 +671,67 @@ export function PreviewPanel({
 }
 
 /* =========================================================
+   REUSABLE PREVIEW FRAME
+========================================================= */
+
+function PreviewFrame({
+  html,
+  title,
+  device,
+  refreshKey,
+  onLoad,
+  onError,
+  fullscreen = false,
+}: PreviewFrameProps) {
+  return (
+    <>
+      {/* Browser chrome */}
+      {device !== "mobile" && (
+        <div className="flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+          </div>
+
+          <div className="mx-auto flex max-w-[55%] items-center gap-1.5 truncate rounded-md border border-black/5 bg-white px-3 py-1 text-[8px] text-black/40 shadow-sm">
+            <Globe2 className="h-2.5 w-2.5 shrink-0" />
+            <span className="truncate">preview.local</span>
+          </div>
+
+          <div className="w-[42px] shrink-0" />
+        </div>
+      )}
+
+      {/* Mobile notch */}
+      {device === "mobile" && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-28 -translate-x-1/2 rounded-b-2xl bg-[#222]"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sandboxed generated website */}
+      <iframe
+        key={refreshKey}
+        title={title}
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        referrerPolicy="no-referrer"
+        loading="eager"
+        onLoad={onLoad}
+        onError={onError}
+        className={`min-h-0 w-full flex-1 border-none bg-white ${
+          fullscreen && device !== "mobile"
+            ? deviceHeight[device]
+            : ""
+        }`}
+        srcDoc={html}
+      />
+    </>
+  );
+}
+
+/* =========================================================
    ACTION BUTTON
 ========================================================= */
 
@@ -683,15 +743,7 @@ function PreviewAction({
   active = false,
   dark = false,
   className = "",
-}: {
-  children: ReactNode;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  active?: boolean;
-  dark?: boolean;
-  className?: string;
-}) {
+}: PreviewActionProps) {
   return (
     <button
       type="button"
@@ -701,8 +753,8 @@ function PreviewAction({
       title={label}
       className={`group inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 ${
         dark
-          ? "border-transparent text-white/45 hover:border-white/10 hover:bg-white/10 hover:text-white focus-visible:ring-white/20"
-          : "border-transparent text-ink/50 hover:border-line hover:bg-paper hover:text-ink focus-visible:ring-accent/25"
+          ? "border-transparent text-white/50 hover:border-white/10 hover:bg-white/10 hover:text-white focus-visible:ring-white/25"
+          : "border-transparent text-ink/55 hover:border-line hover:bg-paper hover:text-ink focus-visible:ring-accent/30"
       } ${
         active
           ? dark
@@ -729,15 +781,14 @@ function PreviewStatus({
   refreshing,
   state,
   dark = false,
-}: {
-  working: boolean;
-  refreshing: boolean;
-  state: PreviewState;
-  dark?: boolean;
-}) {
-  const loading = working || refreshing || state === "loading";
+}: PreviewStatusProps) {
+  const loading =
+    working || refreshing || state === "loading";
+
   const error = state === "error" && !working;
-  const ready = state === "ready" && !working && !refreshing;
+
+  const ready =
+    state === "ready" && !working && !refreshing;
 
   const color = error
     ? dark
@@ -748,13 +799,24 @@ function PreviewStatus({
         ? "text-emerald-400"
         : "text-emerald-600"
       : dark
-        ? "text-white/60"
+        ? "text-white/65"
         : "text-accent";
+
+  const label = working
+    ? "Updating"
+    : refreshing
+      ? "Refreshing"
+      : state === "loading"
+        ? "Loading"
+        : error
+          ? "Preview unavailable"
+          : "Ready";
 
   return (
     <div
       className={`flex shrink-0 items-center gap-1.5 font-semibold ${color}`}
       aria-live="polite"
+      aria-atomic="true"
     >
       {loading ? (
         <Loader2 className="h-3 w-3 animate-spin" />
@@ -764,15 +826,7 @@ function PreviewStatus({
         <Check className="h-3 w-3" />
       )}
 
-      {working
-        ? "Updating"
-        : refreshing
-          ? "Refreshing"
-          : state === "loading"
-            ? "Loading"
-            : error
-              ? "Preview unavailable"
-              : "Ready"}
+      <span>{label}</span>
     </div>
   );
 }
@@ -791,12 +845,13 @@ function PreviewLoadingOverlay({
       className={`absolute inset-0 z-30 flex items-center justify-center backdrop-blur-[3px] ${
         fullscreen ? "bg-white/70" : "bg-white/75"
       }`}
+      role="status"
       aria-live="polite"
-      aria-label="Loading website preview"
     >
       <div className="flex min-w-[220px] items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
           <span className="absolute inset-0 animate-pulse rounded-lg bg-accent/5" />
+
           <Loader2 className="relative h-4 w-4 animate-spin text-accent" />
         </div>
 
@@ -805,7 +860,7 @@ function PreviewLoadingOverlay({
             Updating preview...
           </p>
 
-          <p className="mt-0.5 text-[9px] font-medium text-ink/35">
+          <p className="mt-0.5 text-[9px] font-medium text-ink/45">
             Rendering your latest website
           </p>
         </div>
@@ -824,7 +879,10 @@ function PreviewErrorOverlay({
   onRetry: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/90 p-5 backdrop-blur-sm">
+    <div
+      className="absolute inset-0 z-30 flex items-center justify-center bg-white/90 p-5 backdrop-blur-sm"
+      role="alert"
+    >
       <div className="max-w-xs text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-rose-200 bg-rose-50">
           <AlertCircle className="h-5 w-5 text-rose-500" />
@@ -834,7 +892,7 @@ function PreviewErrorOverlay({
           Preview could not load
         </h3>
 
-        <p className="mt-1 text-[11px] leading-5 text-ink/50">
+        <p className="mt-1 text-[11px] leading-5 text-ink/55">
           The preview did not finish loading. Try refreshing it.
         </p>
 
@@ -870,6 +928,7 @@ function EmptyPreview({
         }`}
       >
         <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-accent/5 blur-3xl" />
+
         <div className="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-teal/5 blur-3xl" />
 
         <div className="relative">
@@ -949,7 +1008,7 @@ function PreviewHint({
   icon?: ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-ink/50 shadow-sm transition-colors hover:border-ink/15 hover:bg-white hover:text-ink/70">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[10px] font-semibold text-ink/55 shadow-sm transition-colors hover:border-ink/15 hover:bg-white hover:text-ink/75">
       {icon}
       {text}
     </span>

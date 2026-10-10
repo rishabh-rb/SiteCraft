@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -51,6 +50,14 @@ interface AgentMeta {
   icon: ComponentType<{ className?: string }>;
 }
 
+const PIPELINE_AGENTS = [
+  "planner",
+  "content",
+  "ui-designer",
+  "code",
+  "qa",
+] as const;
+
 const AGENT_META: Record<string, AgentMeta> = {
   planner: {
     label: "Planner Agent",
@@ -94,14 +101,6 @@ const AGENT_META: Record<string, AgentMeta> = {
   },
 };
 
-const PIPELINE_AGENTS = [
-  "planner",
-  "content",
-  "ui-designer",
-  "code",
-  "qa",
-] as const;
-
 const FALLBACK_AGENT: AgentMeta = {
   label: "AI Agent",
   shortLabel: "Agent",
@@ -111,11 +110,13 @@ const FALLBACK_AGENT: AgentMeta = {
 };
 
 function getAgentMeta(agentKey: string): AgentMeta {
-  return AGENT_META[agentKey] ?? {
-    ...FALLBACK_AGENT,
-    label: agentKey,
-    shortLabel: agentKey,
-  };
+  return (
+    AGENT_META[agentKey] ?? {
+      ...FALLBACK_AGENT,
+      label: agentKey,
+      shortLabel: agentKey,
+    }
+  );
 }
 
 function getFileName(path: string): string {
@@ -161,7 +162,7 @@ function formatDuration(duration: unknown): string | null {
   }
 
   if (typeof duration === "string" && duration.trim()) {
-    return duration;
+    return duration.trim();
   }
 
   return null;
@@ -191,11 +192,7 @@ function getStatus(
     (agent) => generationsByAgent.get(agent)?.status === "completed"
   );
 
-  if (previousStagesCompleted) {
-    return "running";
-  }
-
-  return "pending";
+  return previousStagesCompleted ? "running" : "pending";
 }
 
 function safeSerialize(value: unknown): string {
@@ -254,28 +251,30 @@ function getOutput(
 }
 
 function StatusBadge({ status }: { status: AgentStatus }) {
-  if (status === "completed") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-emerald-700">
-        <Check className="h-2.5 w-2.5" strokeWidth={3} />
-        Done
-      </span>
-    );
-  }
-
-  if (status === "running") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-teal/20 bg-teal/10 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-teal">
-        <Loader2 className="h-2.5 w-2.5 animate-spin" />
-        Running
-      </span>
-    );
-  }
+  const styles: Record<AgentStatus, string> = {
+    completed:
+      "border-emerald-200 bg-emerald-50 text-emerald-700",
+    running: "border-teal/20 bg-teal/10 text-teal",
+    pending: "border-line bg-ink/[0.025] text-ink/35",
+  };
 
   return (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-ink/[0.025] px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-ink/35">
-      <Clock3 className="h-2.5 w-2.5" />
-      Waiting
+    <span
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[8px] font-bold uppercase tracking-wider ${styles[status]}`}
+    >
+      {status === "completed" ? (
+        <Check className="h-2.5 w-2.5" strokeWidth={3} />
+      ) : status === "running" ? (
+        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+      ) : (
+        <Clock3 className="h-2.5 w-2.5" />
+      )}
+
+      {status === "completed"
+        ? "Done"
+        : status === "running"
+          ? "Running"
+          : "Waiting"}
     </span>
   );
 }
@@ -354,10 +353,6 @@ export function GenerationProgress({
     (item) => item.status === "completed"
   ).length;
 
-  const runningCount = pipeline.filter(
-    (item) => item.status === "running"
-  ).length;
-
   const progressPercentage = Math.round(
     (completedCount / PIPELINE_AGENTS.length) * 100
   );
@@ -397,10 +392,15 @@ export function GenerationProgress({
     async (agentKey: string, output: unknown) => {
       if (output == null) return;
 
+      clearCopyTimer();
+
       try {
+        if (!navigator.clipboard?.writeText) {
+          throw new Error("Clipboard API unavailable");
+        }
+
         await navigator.clipboard.writeText(safeSerialize(output));
 
-        clearCopyTimer();
         setCopiedId(agentKey);
         setCopyErrorId(null);
 
@@ -411,7 +411,6 @@ export function GenerationProgress({
           copyTimerRef.current = null;
         }, 1600);
       } catch {
-        clearCopyTimer();
         setCopiedId(null);
         setCopyErrorId(agentKey);
 
@@ -437,7 +436,10 @@ export function GenerationProgress({
           <div className="flex min-w-0 items-center gap-3">
             <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-teal/15 bg-teal/[0.08]">
               {working && (
-                <span className="absolute inset-0 animate-ping rounded-xl bg-teal/10" />
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 animate-ping rounded-xl bg-teal/10"
+                />
               )}
               <Sparkles className="relative h-5 w-5 text-teal" />
             </div>
@@ -575,6 +577,7 @@ export function GenerationProgress({
             const output = getOutput(agentKey, website, stepGen);
             const hasOutput = output !== null && output !== undefined;
             const duration = formatDuration(stepGen?.duration);
+            const outputId = `agent-output-${agentKey}`;
 
             return (
               <article
@@ -591,10 +594,9 @@ export function GenerationProgress({
                   type="button"
                   onClick={() => toggleExpand(agentKey)}
                   aria-expanded={isExpanded}
-                  aria-controls={`agent-output-${agentKey}`}
+                  aria-controls={outputId}
                   className="group flex w-full items-center gap-3 p-3 text-left outline-none transition-colors hover:bg-ink/[0.025] focus-visible:ring-2 focus-visible:ring-teal/30 focus-visible:ring-inset sm:p-3.5"
                 >
-                  {/* Step indicator */}
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[9px] font-black transition-colors ${
                       status === "completed"
@@ -613,7 +615,6 @@ export function GenerationProgress({
                     )}
                   </div>
 
-                  {/* Agent icon */}
                   <div
                     className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:flex ${
                       status === "running"
@@ -626,7 +627,6 @@ export function GenerationProgress({
                     <Icon className="h-3.5 w-3.5" />
                   </div>
 
-                  {/* Agent description */}
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
                       <p
@@ -660,11 +660,12 @@ export function GenerationProgress({
                           : "text-ink/40"
                       }`}
                     >
-                      {status === "running" ? meta.detail : meta.shortLabel}
+                      {status === "running"
+                        ? meta.detail
+                        : meta.shortLabel}
                     </p>
                   </div>
 
-                  {/* Status and expand */}
                   <div className="flex shrink-0 items-center gap-1.5">
                     <StatusBadge status={status} />
 
@@ -681,7 +682,7 @@ export function GenerationProgress({
                 {/* Agent output */}
                 {isExpanded && (
                   <div
-                    id={`agent-output-${agentKey}`}
+                    id={outputId}
                     className="border-t border-line"
                   >
                     <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-[#101010] px-3 py-2.5">
