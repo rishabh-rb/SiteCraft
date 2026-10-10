@@ -29,9 +29,20 @@ export const promptSchema = z.object({
     .max(2000, "Prompt cannot exceed 2000 characters."),
 });
 
-// TypeScript types inferred from the schemas
+// Types inferred from the schemas
 export type CreateProjectInput = z.infer<
   typeof createProjectSchema
 >;
 
-export type PromptInput = z.infer<typeof promptSchema>;
+export type PromptInput = z.infer<
+  typeof promptSchema
+>;
+
+// Types for data before validation/defaults are applied
+export type CreateProjectRequest = z.input<
+  typeof createProjectSchema
+>;
+
+export type PromptRequest = z.input<
+  typeof promptSchema
+>;
