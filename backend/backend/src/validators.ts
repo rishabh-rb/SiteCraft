@@ -1,158 +1,248 @@
-import { z } from "zod";
+
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  createProjectSchema,
+  promptSchema,
+  isValidProjectInput,
+  isValidPromptInput,
+} from "./validators.js";
 
 /* =========================================================
-   Validation Constants
+   Framework Validation
 ========================================================= */
 
-const PROJECT_NAME_MIN_LENGTH = 2;
-const PROJECT_NAME_MAX_LENGTH = 80;
-
-const DESCRIPTION_MAX_LENGTH = 240;
-
-const PROMPT_MIN_LENGTH = 2;
-const INITIAL_PROMPT_MIN_LENGTH = 10;
-const PROMPT_MAX_LENGTH = 2_000;
-
-const FRAMEWORK_MIN_LENGTH = 1;
-
-/* =========================================================
-   Validation Messages
-========================================================= */
-
-const MESSAGES = {
-  projectName: {
-    type: "Project name must be a string",
-    min: `Project name must be at least ${PROJECT_NAME_MIN_LENGTH} characters`,
-    max: `Project name must not exceed ${PROJECT_NAME_MAX_LENGTH} characters`,
-  },
-
-  description: {
-    type: "Description must be a string",
-    max: `Description must not exceed ${DESCRIPTION_MAX_LENGTH} characters`,
-  },
-
-  initialPrompt: {
-    type: "Initial prompt must be a string",
-    min: `Initial prompt must be at least ${INITIAL_PROMPT_MIN_LENGTH} characters`,
-    max: `Initial prompt must not exceed ${PROMPT_MAX_LENGTH} characters`,
-  },
-
-  prompt: {
-    type: "Prompt must be a string",
-    min: `Prompt must be at least ${PROMPT_MIN_LENGTH} characters`,
-    max: `Prompt must not exceed ${PROMPT_MAX_LENGTH} characters`,
-  },
-
-  framework: {
-    type: "Framework must be a string",
-    min: "Framework cannot be empty",
-  },
-} as const;
-
-/* =========================================================
-   Reusable String Schemas
-========================================================= */
-
-const projectNameSchema = z
-  .string({
-    message: MESSAGES.projectName.type,
-  })
-  .trim()
-  .min(PROJECT_NAME_MIN_LENGTH, {
-    message: MESSAGES.projectName.min,
-  })
-  .max(PROJECT_NAME_MAX_LENGTH, {
-    message: MESSAGES.projectName.max,
+test("accepts project without framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
   });
 
-const descriptionSchema = z
-  .string({
-    message: MESSAGES.description.type,
-  })
-  .trim()
-  .max(DESCRIPTION_MAX_LENGTH, {
-    message: MESSAGES.description.max,
+  assert.equal(result.success, true);
+});
+
+test("accepts a valid framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+    framework: "React",
   });
 
-const initialPromptSchema = z
-  .string({
-    message: MESSAGES.initialPrompt.type,
-  })
-  .trim()
-  .min(INITIAL_PROMPT_MIN_LENGTH, {
-    message: MESSAGES.initialPrompt.min,
-  })
-  .max(PROMPT_MAX_LENGTH, {
-    message: MESSAGES.initialPrompt.max,
+  assert.equal(result.success, true);
+});
+
+test("trims whitespace from framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+    framework: "  React  ",
   });
 
-const frameworkSchema = z
-  .string({
-    message: MESSAGES.framework.type,
-  })
-  .trim()
-  .min(FRAMEWORK_MIN_LENGTH, {
-    message: MESSAGES.framework.min,
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.framework, "React");
+  }
+});
+
+test("rejects empty framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+    framework: "",
   });
 
-const promptValueSchema = z
-  .string({
-    message: MESSAGES.prompt.type,
-  })
-  .trim()
-  .min(PROMPT_MIN_LENGTH, {
-    message: MESSAGES.prompt.min,
-  })
-  .max(PROMPT_MAX_LENGTH, {
-    message: MESSAGES.prompt.max,
+  assert.equal(result.success, false);
+});
+
+test("rejects whitespace-only framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+    framework: "   ",
   });
 
-/* =========================================================
-   Project Creation Schema
-========================================================= */
+  assert.equal(result.success, false);
+});
 
-export const createProjectSchema = z.object({
-  name: projectNameSchema,
+test("rejects non-string framework", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+    framework: 123,
+  });
 
-  description: descriptionSchema.default(""),
-
-  initialPrompt: initialPromptSchema,
-
-  framework: frameworkSchema.optional(),
+  assert.equal(result.success, false);
 });
 
 /* =========================================================
-   Prompt Schema
+   Description Validation
 ========================================================= */
 
-export const promptSchema = z.object({
-  prompt: promptValueSchema,
+test("defaults missing description to an empty string", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "");
+  }
+});
+
+test("rejects description exceeding 240 characters", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    description: "d".repeat(241),
+    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects non-string description", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    description: 123,
+    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, false);
 });
 
 /* =========================================================
-   Inferred Types
+   Custom Error Messages
 ========================================================= */
 
-export type CreateProjectInput = z.infer<
-  typeof createProjectSchema
->;
+test("returns custom error for invalid project name type", () => {
+  const result = createProjectSchema.safeParse({
+    name: 123,
+    initialPrompt: "Create a cafe website with a menu",
+  });
 
-export type PromptInput = z.infer<
-  typeof promptSchema
->;
+  assert.equal(result.success, false);
+
+  if (!result.success) {
+    assert.ok(
+      result.error.issues.some(
+        (issue) => issue.message === "Project name must be a string",
+      ),
+    );
+  }
+});
+
+test("returns custom error for short project name", () => {
+  const result = createProjectSchema.safeParse({
+    name: "A",
+    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, false);
+
+  if (!result.success) {
+    assert.ok(
+      result.error.issues.some(
+        (issue) =>
+          issue.message ===
+          "Project name must be at least 2 characters",
+      ),
+    );
+  }
+});
+
+test("returns custom error for short initial prompt", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Short",
+  });
+
+  assert.equal(result.success, false);
+
+  if (!result.success) {
+    assert.ok(
+      result.error.issues.some(
+        (issue) =>
+          issue.message ===
+          "Initial prompt must be at least 10 characters",
+      ),
+    );
+  }
+});
+
+test("returns custom error for short prompt", () => {
+  const result = promptSchema.safeParse({
+    prompt: "A",
+  });
+
+  assert.equal(result.success, false);
+
+  if (!result.success) {
+    assert.ok(
+      result.error.issues.some(
+        (issue) =>
+          issue.message === "Prompt must be at least 2 characters",
+      ),
+    );
+  }
+});
 
 /* =========================================================
-   Validation Helpers
+   Type Guard Tests
 ========================================================= */
 
-export function isValidProjectInput(
-  input: unknown,
-): input is CreateProjectInput {
-  return createProjectSchema.safeParse(input).success;
-}
+test("isValidProjectInput returns true for valid input", () => {
+  assert.equal(
+    isValidProjectInput({
+      name: "Cafe",
+      initialPrompt: "Create a cafe website with a menu",
+    }),
+    true,
+  );
+});
 
-export function isValidPromptInput(
-  input: unknown,
-): input is PromptInput {
-  return promptSchema.safeParse(input).success;
-}
+test("isValidProjectInput returns false for invalid input", () => {
+  assert.equal(
+    isValidProjectInput({
+      name: "",
+      initialPrompt: "Create a cafe website with a menu",
+    }),
+    false,
+  );
+});
+
+test("isValidPromptInput returns true for valid input", () => {
+  assert.equal(
+    isValidPromptInput({
+      prompt: "Create a modern cafe website",
+    }),
+    true,
+  );
+});
+
+test("isValidPromptInput returns false for invalid input", () => {
+  assert.equal(
+    isValidPromptInput({
+      prompt: "",
+    }),
+    false,
+  );
+});
+
+test("type guards reject null and primitive inputs", () => {
+  const invalidInputs: unknown[] = [
+    null,
+    undefined,
+    "",
+    123,
+    true,
+    [],
+  ];
+
+  for (const input of invalidInputs) {
+    assert.equal(isValidProjectInput(input), false);
+    assert.equal(isValidPromptInput(input), false);
+  }
+});
