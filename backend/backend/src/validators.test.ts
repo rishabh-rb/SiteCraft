@@ -1,3 +1,4 @@
+
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -21,8 +22,10 @@ function expectValid(
     true,
     result.success
       ? undefined
-      : `Expected valid input but received validation error: ${result.error.message}`,
+      : `Validation failed: ${result.error.message}`,
   );
+
+  return result;
 }
 
 function expectInvalid(
@@ -34,200 +37,218 @@ function expectInvalid(
   assert.equal(
     result.success,
     false,
-    "Expected validation to fail but it succeeded",
+    "Expected validation to fail",
   );
+
+  if (!result.success) {
+    assert.ok(result.error.issues.length > 0);
+  }
+
+  return result;
 }
 
 /* =========================================================
-   Prompt Validation - Valid Inputs
+   Prompt Validation
 ========================================================= */
 
 test("accepts a valid prompt", () => {
   expectValid(promptSchema, {
-    prompt: "Create a modern cafe website with a menu and contact page",
+    prompt: "Create a modern cafe website",
   });
 });
 
-test("accepts a detailed website prompt", () => {
+test("accepts prompt with punctuation and numbers", () => {
   expectValid(promptSchema, {
-    prompt:
-      "Create a responsive SaaS landing page with pricing cards, testimonials, navigation, hero section and a contact form",
+    prompt: "Create 5 sections, 3 cards, and a contact form!",
   });
 });
 
-test("accepts a prompt containing punctuation", () => {
+test("accepts prompt with exactly 2 characters", () => {
   expectValid(promptSchema, {
-    prompt:
-      "Create a portfolio website: hero section, projects, skills, contact form, and footer.",
+    prompt: "Hi",
   });
 });
 
-test("accepts a prompt containing numbers", () => {
+test("accepts prompt with exactly 2000 characters", () => {
   expectValid(promptSchema, {
-    prompt:
-      "Create a website with 5 sections, 3 pricing cards, and 10 testimonials.",
+    prompt: "a".repeat(2000),
   });
 });
 
-test("accepts a long descriptive prompt", () => {
-  expectValid(promptSchema, {
-    prompt:
-      "Create a professional and responsive e-commerce website for a fashion brand with a navigation bar, hero section, product categories, product cards, search functionality, filters, shopping cart, wishlist, customer testimonials, newsletter subscription, contact section, footer, mobile responsive layout, modern typography, and a clean premium visual design.",
+test("trims whitespace from a valid prompt", () => {
+  const result = promptSchema.safeParse({
+    prompt: "  Create a cafe website  ",
+  });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.prompt, "Create a cafe website");
+  }
+});
+
+test("rejects prompt shorter than 2 characters", () => {
+  expectInvalid(promptSchema, {
+    prompt: "a",
   });
 });
 
-/* =========================================================
-   Prompt Validation - Empty / Missing Inputs
-========================================================= */
-
-test("rejects an empty prompt", () => {
-  expectInvalid(promptSchema, { prompt: "" });
+test("rejects prompt longer than 2000 characters", () => {
+  expectInvalid(promptSchema, {
+    prompt: "a".repeat(2001),
+  });
 });
 
-test("rejects a missing prompt", () => {
+test("rejects empty and whitespace-only prompts", () => {
+  for (const prompt of ["", " ", "   ", "\t", "\n"]) {
+    expectInvalid(promptSchema, { prompt });
+  }
+});
+
+test("rejects missing prompt", () => {
   expectInvalid(promptSchema, {});
 });
 
-test("rejects an undefined prompt", () => {
-  expectInvalid(promptSchema, { prompt: undefined });
-});
-
-test("rejects a null prompt", () => {
+test("rejects null prompt", () => {
   expectInvalid(promptSchema, { prompt: null });
 });
 
-test("rejects a whitespace-only prompt", () => {
-  expectInvalid(promptSchema, { prompt: "   " });
+test("rejects undefined prompt", () => {
+  expectInvalid(promptSchema, { prompt: undefined });
 });
 
-test("rejects a tab-only prompt", () => {
-  expectInvalid(promptSchema, { prompt: "\t\t" });
+test("rejects non-string prompt values", () => {
+  const invalidValues: unknown[] = [
+    123,
+    true,
+    false,
+    [],
+    ["Create a website"],
+    {},
+    { text: "Create a website" },
+    null,
+  ];
+
+  for (const prompt of invalidValues) {
+    expectInvalid(promptSchema, { prompt });
+  }
 });
 
-test("rejects a newline-only prompt", () => {
-  expectInvalid(promptSchema, { prompt: "\n\n" });
-});
+test("rejects invalid complete prompt inputs", () => {
+  const invalidInputs: unknown[] = [
+    null,
+    [],
+    "Create a website",
+    123,
+    true,
+  ];
 
-/* =========================================================
-   Prompt Validation - Invalid Types
-========================================================= */
-
-test("rejects a numeric prompt", () => {
-  expectInvalid(promptSchema, { prompt: 123 });
-});
-
-test("rejects a boolean prompt", () => {
-  expectInvalid(promptSchema, { prompt: true });
-});
-
-test("rejects an array prompt", () => {
-  expectInvalid(promptSchema, { prompt: ["Create a website"] });
-});
-
-test("rejects an object prompt", () => {
-  expectInvalid(promptSchema, {
-    prompt: { text: "Create a website" },
-  });
-});
-
-test("rejects a bigint prompt", () => {
-  expectInvalid(promptSchema, { prompt: BigInt(123) });
-});
-
-test("rejects null prompt input", () => {
-  expectInvalid(promptSchema, null);
-});
-
-test("rejects array as complete prompt input", () => {
-  expectInvalid(promptSchema, []);
-});
-
-test("rejects string as complete prompt input", () => {
-  expectInvalid(promptSchema, "Create a website");
+  for (const input of invalidInputs) {
+    expectInvalid(promptSchema, input);
+  }
 });
 
 /* =========================================================
-   Project Creation - Valid Inputs
+   Project Name Validation
 ========================================================= */
 
-test("accepts valid project creation input", () => {
+test("accepts a valid project name", () => {
   expectValid(createProjectSchema, {
     name: "Cafe",
     initialPrompt: "Create a cafe website with a menu",
   });
 });
 
-test("accepts a detailed project", () => {
+test("accepts project name with exactly 2 characters", () => {
   expectValid(createProjectSchema, {
-    name: "Food Delivery Platform",
-    initialPrompt:
-      "Create a modern food delivery website with restaurant cards, search, categories, cart, checkout and responsive design",
+    name: "AI",
+    initialPrompt: "Create an artificial intelligence website",
   });
 });
 
-test("accepts a project with punctuation in the name", () => {
+test("accepts project name with exactly 80 characters", () => {
   expectValid(createProjectSchema, {
-    name: "Ananshi's Portfolio",
-    initialPrompt:
-      "Create a personal portfolio website with projects, skills and contact information",
+    name: "P".repeat(80),
+    initialPrompt: "Create a project website with a dashboard",
   });
 });
 
-test("accepts a project name containing numbers", () => {
-  expectValid(createProjectSchema, {
-    name: "Project 2026",
-    initialPrompt:
-      "Create a modern project management website with dashboard and task tracking",
+test("trims whitespace from project name", () => {
+  const result = createProjectSchema.safeParse({
+    name: "  Portfolio  ",
+    initialPrompt: "Create a personal portfolio website",
+  });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.name, "Portfolio");
+  }
+});
+
+test("rejects project name shorter than 2 characters", () => {
+  expectInvalid(createProjectSchema, {
+    name: "A",
+    initialPrompt: "Create a portfolio website",
   });
 });
 
-test("accepts a long project description", () => {
-  expectValid(createProjectSchema, {
-    name: "AI Powered Certificate Verification Platform",
-    initialPrompt:
-      "Create a professional web application for verifying certificates using OCR, machine learning based authenticity analysis, certificate details, verification results, responsive dashboard, clean navigation, user-friendly interface, and detailed result pages.",
+test("rejects project name longer than 80 characters", () => {
+  expectInvalid(createProjectSchema, {
+    name: "P".repeat(81),
+    initialPrompt: "Create a portfolio website",
   });
+});
+
+test("rejects empty and whitespace-only project names", () => {
+  for (const name of ["", " ", "   ", "\t"]) {
+    expectInvalid(createProjectSchema, {
+      name,
+      initialPrompt: "Create a portfolio website",
+    });
+  }
+});
+
+test("rejects missing project name", () => {
+  expectInvalid(createProjectSchema, {
+    initialPrompt: "Create a portfolio website",
+  });
+});
+
+test("rejects invalid project name types", () => {
+  const invalidValues: unknown[] = [
+    123,
+    true,
+    false,
+    [],
+    ["Cafe"],
+    {},
+    { value: "Cafe" },
+    null,
+  ];
+
+  for (const name of invalidValues) {
+    expectInvalid(createProjectSchema, {
+      name,
+      initialPrompt: "Create a cafe website",
+    });
+  }
 });
 
 /* =========================================================
-   Project Creation - Missing Inputs
+   Initial Prompt Validation
 ========================================================= */
 
-test("rejects a missing project name", () => {
+test("rejects missing initial prompt", () => {
   expectInvalid(createProjectSchema, {
-    initialPrompt: "Create a cafe website with a menu",
+    name: "Cafe",
   });
 });
 
-test("rejects a missing initial prompt", () => {
-  expectInvalid(createProjectSchema, { name: "Cafe" });
-});
-
-test("rejects an empty project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: "",
-    initialPrompt: "Create a cafe website with a menu",
-  });
-});
-
-test("rejects an empty initial prompt", () => {
+test("rejects empty initial prompt", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
     initialPrompt: "",
-  });
-});
-
-test("rejects a project with both fields empty", () => {
-  expectInvalid(createProjectSchema, {
-    name: "",
-    initialPrompt: "",
-  });
-});
-
-test("rejects whitespace-only project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: "   ",
-    initialPrompt: "Create a cafe website with a menu",
   });
 });
 
@@ -238,144 +259,149 @@ test("rejects whitespace-only initial prompt", () => {
   });
 });
 
-test("rejects undefined project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: undefined,
-    initialPrompt: "Create a cafe website",
-  });
-});
-
-test("rejects undefined initial prompt", () => {
+test("rejects initial prompt shorter than 10 characters", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: undefined,
+    initialPrompt: "Too short",
   });
 });
 
-test("rejects null project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: null,
-    initialPrompt: "Create a cafe website",
+test("accepts initial prompt with exactly 10 characters", () => {
+  expectValid(createProjectSchema, {
+    name: "Cafe",
+    initialPrompt: "1234567890",
   });
 });
 
-test("rejects null initial prompt", () => {
+test("accepts initial prompt with exactly 2000 characters", () => {
+  expectValid(createProjectSchema, {
+    name: "Cafe",
+    initialPrompt: "a".repeat(2000),
+  });
+});
+
+test("rejects initial prompt longer than 2000 characters", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: null,
+    initialPrompt: "a".repeat(2001),
   });
+});
+
+test("rejects invalid initial prompt types", () => {
+  const invalidValues: unknown[] = [
+    123,
+    true,
+    false,
+    [],
+    ["Create a website"],
+    {},
+    { text: "Create a website" },
+    null,
+  ];
+
+  for (const initialPrompt of invalidValues) {
+    expectInvalid(createProjectSchema, {
+      name: "Cafe",
+      initialPrompt,
+    });
+  }
 });
 
 /* =========================================================
-   Project Creation - Invalid Types
+   Description Validation
 ========================================================= */
 
-test("rejects non-string project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: 123,
+test("uses an empty description by default", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "");
+  }
+});
+
+test("accepts an empty description", () => {
+  expectValid(createProjectSchema, {
+    name: "Cafe",
+    description: "",
     initialPrompt: "Create a cafe website",
   });
 });
 
-test("rejects non-string initial prompt", () => {
-  expectInvalid(createProjectSchema, {
+test("accepts description with exactly 240 characters", () => {
+  expectValid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: 123,
-  });
-});
-
-test("rejects boolean project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: true,
+    description: "d".repeat(240),
     initialPrompt: "Create a cafe website",
   });
 });
 
-test("rejects boolean initial prompt", () => {
+test("rejects description longer than 240 characters", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: false,
-  });
-});
-
-test("rejects array project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: ["Cafe"],
+    description: "d".repeat(241),
     initialPrompt: "Create a cafe website",
   });
 });
 
-test("rejects array initial prompt", () => {
-  expectInvalid(createProjectSchema, {
+test("trims whitespace from description", () => {
+  const result = createProjectSchema.safeParse({
     name: "Cafe",
-    initialPrompt: ["Create a website"],
-  });
-});
-
-test("rejects object project name", () => {
-  expectInvalid(createProjectSchema, {
-    name: { value: "Cafe" },
+    description: "  A cafe website  ",
     initialPrompt: "Create a cafe website",
   });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "A cafe website");
+  }
 });
 
-test("rejects object initial prompt", () => {
+test("rejects non-string description", () => {
   expectInvalid(createProjectSchema, {
     name: "Cafe",
-    initialPrompt: { value: "Create a cafe website" },
+    description: 123,
+    initialPrompt: "Create a cafe website",
   });
 });
 
 /* =========================================================
-   Complete Invalid Objects
+   Complete Input Validation
 ========================================================= */
 
 test("rejects null project input", () => {
   expectInvalid(createProjectSchema, null);
 });
 
-test("rejects an empty object", () => {
+test("rejects an empty project object", () => {
   expectInvalid(createProjectSchema, {});
 });
 
-test("rejects an array as project input", () => {
+test("rejects array as project input", () => {
   expectInvalid(createProjectSchema, []);
 });
 
-test("rejects a string as project input", () => {
+test("rejects string as project input", () => {
   expectInvalid(createProjectSchema, "Cafe");
 });
 
-test("rejects a number as project input", () => {
+test("rejects number as project input", () => {
   expectInvalid(createProjectSchema, 123);
 });
 
-test("rejects a boolean as project input", () => {
+test("rejects boolean as project input", () => {
   expectInvalid(createProjectSchema, true);
 });
 
-/* =========================================================
-   Cross-Field Validation
-========================================================= */
-
-test("rejects when project name is valid but prompt is invalid", () => {
-  expectInvalid(createProjectSchema, {
-    name: "Cafe",
-    initialPrompt: "",
-  });
-});
-
-test("rejects when prompt is valid but project name is invalid", () => {
+test("rejects project when both required fields are invalid", () => {
   expectInvalid(createProjectSchema, {
     name: "",
-    initialPrompt: "Create a modern cafe website with a menu",
-  });
-});
-
-test("rejects when both values have wrong types", () => {
-  expectInvalid(createProjectSchema, {
-    name: 123,
-    initialPrompt: false,
+    initialPrompt: "",
   });
 });
 
@@ -383,30 +409,38 @@ test("rejects when both values have wrong types", () => {
    Extra Fields
 ========================================================= */
 
-test("handles an extra field without breaking validation", () => {
+test("strips unknown fields from project input", () => {
   const result = createProjectSchema.safeParse({
     name: "Cafe",
     initialPrompt: "Create a cafe website",
-    extraField: "test",
+    extraField: "unwanted",
   });
 
   assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal("extraField" in result.data, false);
+  }
 });
 
-test("handles an extra prompt field without breaking validation", () => {
+test("strips unknown fields from prompt input", () => {
   const result = promptSchema.safeParse({
     prompt: "Create a cafe website",
-    extraField: "test",
+    extraField: "unwanted",
   });
 
   assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal("extraField" in result.data, false);
+  }
 });
 
 /* =========================================================
-   Validation Result Structure
+   Validation Error Structure
 ========================================================= */
 
-test("returns structured validation errors for invalid prompt", () => {
+test("returns a validation issue for an invalid prompt", () => {
   const result = promptSchema.safeParse({
     prompt: "",
   });
@@ -414,12 +448,16 @@ test("returns structured validation errors for invalid prompt", () => {
   assert.equal(result.success, false);
 
   if (!result.success) {
-    assert.ok(Array.isArray(result.error.issues));
     assert.ok(result.error.issues.length > 0);
+    assert.ok(
+      result.error.issues.some(
+        (issue) => issue.path.includes("prompt"),
+      ),
+    );
   }
 });
 
-test("returns structured validation errors for invalid project", () => {
+test("returns validation issues for invalid project fields", () => {
   const result = createProjectSchema.safeParse({
     name: "",
     initialPrompt: "",
@@ -428,37 +466,42 @@ test("returns structured validation errors for invalid project", () => {
   assert.equal(result.success, false);
 
   if (!result.success) {
-    assert.ok(Array.isArray(result.error.issues));
     assert.ok(result.error.issues.length > 0);
+
+    const invalidFields = result.error.issues.map(
+      (issue) => issue.path[0],
+    );
+
+    assert.ok(invalidFields.includes("name"));
+    assert.ok(invalidFields.includes("initialPrompt"));
   }
 });
 
 /* =========================================================
-   Schema Stability
+   Input Stability
 ========================================================= */
 
-test("prompt schema does not mutate valid input unexpectedly", () => {
+test("does not mutate the original prompt input", () => {
   const input = {
-    prompt: "Create a modern portfolio website",
+    prompt: "  Create a portfolio website  ",
   };
 
   const original = { ...input };
-  const result = promptSchema.safeParse(input);
 
-  assert.equal(result.success, true);
+  promptSchema.safeParse(input);
+
   assert.deepEqual(input, original);
 });
 
-test("project schema does not mutate valid input unexpectedly", () => {
+test("does not mutate the original project input", () => {
   const input = {
-    name: "Portfolio",
-    initialPrompt:
-      "Create a modern portfolio website with projects and contact page",
+    name: "  Portfolio  ",
+    initialPrompt: "Create a portfolio website",
   };
 
   const original = { ...input };
-  const result = createProjectSchema.safeParse(input);
 
-  assert.equal(result.success, true);
+  createProjectSchema.safeParse(input);
+
   assert.deepEqual(input, original);
 });
