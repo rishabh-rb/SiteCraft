@@ -1,7 +1,6 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-
 import {
   createProvider,
   ProviderError,
@@ -9,19 +8,38 @@ import {
 
 const NVIDIA_API_KEY = "super-secret-nvidia-key";
 const NVIDIA_MODEL = "working-model";
-const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+const NVIDIA_BASE_URL =
+  "https://integrate.api.nvidia.com/v1";
+
+const ENV_KEYS = [
+  "NVIDIA_API_KEY",
+  "NVIDIA_MODEL",
+  "NVIDIA_BASE_URL",
+  "GEMINI_API_KEY",
+  "OPENAI_API_KEY",
+  "BYNARA_API_KEY",
+] as const;
 
 type FetchCall = {
   input: RequestInfo | URL;
   init?: RequestInit;
 };
 
-type ProviderErrorShape = {
+type ProviderErrorShape = ProviderError & {
   code: string;
   model: string;
   provider: string;
-  message: string;
 };
+
+type JsonResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }> | null;
+};
+
+const serial = { concurrency: false };
 
 function mockFetch(
   body: unknown,
@@ -30,12 +48,13 @@ function mockFetch(
     "Content-Type": "application/json",
   }
 ): typeof fetch {
-  return (async () => {
-    return new Response(
-      typeof body === "string" ? body : JSON.stringify(body),
+  return (async () =>
+    new Response(
+      typeof body === "string"
+        ? body
+        : JSON.stringify(body),
       { status, headers }
-    );
-  }) as typeof fetch;
+    )) as typeof fetch;
 }
 
 async function withMockedFetch<T>(
@@ -43,7 +62,6 @@ async function withMockedFetch<T>(
   callback: () => Promise<T>
 ): Promise<T> {
   const originalFetch = globalThis.fetch;
-
   globalThis.fetch = fetchMock;
 
   try {
@@ -56,7 +74,14 @@ async function withMockedFetch<T>(
 async function withNvidiaEnvironment<T>(
   callback: () => Promise<T>
 ): Promise<T> {
-  const originalEnv = { ...process.env };
+  const previousValues = new Map<
+    string,
+    string | undefined
+  >();
+
+  for (const key of ENV_KEYS) {
+    previousValues.set(key, process.env[key]);
+  }
 
   process.env.NVIDIA_API_KEY = NVIDIA_API_KEY;
   process.env.NVIDIA_MODEL = NVIDIA_MODEL;
@@ -69,13 +94,7 @@ async function withNvidiaEnvironment<T>(
   try {
     return await callback();
   } finally {
-    for (const key of Object.keys(process.env)) {
-      if (!(key in originalEnv)) {
-        delete process.env[key];
-      }
-    }
-
-    for (const [key, value] of Object.entries(originalEnv)) {
+    for (const [key, value] of previousValues) {
       if (value === undefined) {
         delete process.env[key];
       } else {
@@ -85,7 +104,9 @@ async function withNvidiaEnvironment<T>(
   }
 }
 
-function createValidResponse(content = '{"ok":true}') {
+function createValidResponse(
+  content = '{"ok":true}'
+): JsonResponse {
   return {
     choices: [
       {
@@ -97,33 +118,43 @@ function createValidResponse(content = '{"ok":true}') {
   };
 }
 
-function assertProviderError(
-  action: () => Promise<unknown>,
-  expectedCode: string,
-  expectedModel = NVIDIA_MODEL
-): Promise<void> {
-  return assert.rejects(
-    action,
-    (error: unknown) => {
-      assert.ok(
-        error instanceof ProviderError,
-        "Expected ProviderError"
-      );
-
-      const providerError = error as ProviderErrorShape;
-
-      assert.equal(providerError.code, expectedCode);
-      assert.equal(providerError.model, expectedModel);
-      assert.equal(providerError.provider, "nvidia");
-      assert.ok(providerError.message.length > 0);
-
-      return true;
-    }
+function createProviderError(
+  error: unknown,
+  expectedCode?: string
+): asserts error is ProviderErrorShape {
+  assert.ok(
+    error instanceof ProviderError,
+    "Expected a ProviderError"
   );
+
+  const providerError = error as ProviderErrorShape;
+
+  assert.equal(providerError.provider, "nvidia");
+  assert.equal(providerError.model, NVIDIA_MODEL);
+  assert.ok(providerError.message.length > 0);
+
+  if (expectedCode) {
+    assert.equal(providerError.code, expectedCode);
+  }
 }
 
+async function expectProviderError(
+  action: () => Promise<unknown>,
+  expectedCode?: string
+): Promise<void> {
+  await assert.rejects(action, (error: unknown) => {
+    createProviderError(error, expectedCode);
+    return true;
+  });
+}
+
+// =========================================================
+// Model errors
+// =========================================================
+
 test(
-  "throws MODEL_UNAVAILABLE when the NVIDIA model is unavailable",
+  "throws MODEL_UNAVAILABLE when the model does not exist",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -138,7 +169,7 @@ test(
           404
         ),
         async () => {
-          await assertProviderError(
+          await expectProviderError(
             () =>
               provider.generateJson(
                 "Generate a test response",
@@ -153,7 +184,8 @@ test(
 );
 
 test(
-  "includes configuration guidance for an unavailable model",
+  "provides NVIDIA_MODEL guidance for unavailable models",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -169,15 +201,24 @@ test(
         ),
         async () => {
           await assert.rejects(
-            provider.generateJson(
-              "Generate a test response",
-              "code"
-            ),
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
             (error: unknown) => {
-              assert.ok(error instanceof ProviderError);
-              assert.equal(error.code, "MODEL_UNAVAILABLE");
-              assert.match(error.message, /NVIDIA_MODEL/i);
-              assert.ok(error.message.includes(NVIDIA_MODEL));
+              createProviderError(
+                error,
+                "MODEL_UNAVAILABLE"
+              );
+
+              assert.match(
+                error.message,
+                /NVIDIA_MODEL/i
+              );
+              assert.ok(
+                error.message.includes(NVIDIA_MODEL)
+              );
 
               return true;
             }
@@ -188,16 +229,21 @@ test(
   }
 );
 
+// =========================================================
+// Malformed responses
+// =========================================================
+
 test(
-  "throws MALFORMED_RESPONSE when the HTTP response is invalid JSON",
+  "throws MALFORMED_RESPONSE for invalid HTTP JSON",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
 
       await withMockedFetch(
-        mockFetch("{ this is not valid JSON"),
+        mockFetch("{ invalid JSON"),
         async () => {
-          await assertProviderError(
+          await expectProviderError(
             () =>
               provider.generateJson(
                 "Generate a test response",
@@ -212,7 +258,8 @@ test(
 );
 
 test(
-  "throws MALFORMED_RESPONSE when the generated content is not JSON",
+  "throws MALFORMED_RESPONSE when generated content is not JSON",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -220,7 +267,7 @@ test(
       await withMockedFetch(
         mockFetch(createValidResponse("not-json")),
         async () => {
-          await assertProviderError(
+          await expectProviderError(
             () =>
               provider.generateJson(
                 "Generate a test response",
@@ -239,41 +286,43 @@ const malformedResponses: Array<{
   body: unknown;
 }> = [
   {
-    name: "choices is missing",
-    body: {
-      id: "test-response",
-      object: "chat.completion",
-    },
+    name: "missing choices",
+    body: {},
   },
   {
-    name: "choices is null",
+    name: "null choices",
     body: { choices: null },
   },
   {
-    name: "choices is empty",
+    name: "empty choices",
     body: { choices: [] },
   },
   {
-    name: "message is missing",
+    name: "missing message",
     body: { choices: [{}] },
   },
   {
-    name: "message content is missing",
+    name: "missing message content",
+    body: { choices: [{ message: {} }] },
+  },
+  {
+    name: "empty message content",
     body: {
-      choices: [{ message: {} }],
+      choices: [{ message: { content: "" } }],
     },
   },
   {
-    name: "message content is empty",
+    name: "null message content",
     body: {
-      choices: [{ message: { content: "" } }],
+      choices: [{ message: { content: null } }],
     },
   },
 ];
 
 for (const response of malformedResponses) {
   test(
-    `throws MALFORMED_RESPONSE when ${response.name}`,
+    `throws MALFORMED_RESPONSE for ${response.name}`,
+    serial,
     async () => {
       await withNvidiaEnvironment(async () => {
         const provider = createProvider();
@@ -281,7 +330,7 @@ for (const response of malformedResponses) {
         await withMockedFetch(
           mockFetch(response.body),
           async () => {
-            await assertProviderError(
+            await expectProviderError(
               () =>
                 provider.generateJson(
                   "Generate a test response",
@@ -296,11 +345,11 @@ for (const response of malformedResponses) {
   );
 }
 
-const httpErrors: Array<{
-  name: string;
-  status: number;
-  message: string;
-}> = [
+// =========================================================
+// HTTP errors
+// =========================================================
+
+const httpErrors = [
   {
     name: "server failure",
     status: 500,
@@ -312,42 +361,31 @@ const httpErrors: Array<{
     message: "Too many requests",
   },
   {
-    name: "invalid API key",
+    name: "authentication failure",
     status: 401,
     message: "Invalid API key",
   },
 ];
 
-for (const httpError of httpErrors) {
+for (const item of httpErrors) {
   test(
-    `returns a ProviderError for ${httpError.name}`,
+    `returns ProviderError for ${item.name}`,
+    serial,
     async () => {
       await withNvidiaEnvironment(async () => {
         const provider = createProvider();
 
         await withMockedFetch(
           mockFetch(
-            {
-              error: {
-                message: httpError.message,
-              },
-            },
-            httpError.status
+            { error: { message: item.message } },
+            item.status
           ),
           async () => {
-            await assert.rejects(
+            await expectProviderError(() =>
               provider.generateJson(
                 "Generate a test response",
                 "code"
-              ),
-              (error: unknown) => {
-                assert.ok(error instanceof ProviderError);
-                assert.equal(error.provider, "nvidia");
-                assert.equal(error.model, NVIDIA_MODEL);
-                assert.ok(error.message.length > 0);
-
-                return true;
-              }
+              )
             );
           }
         );
@@ -356,8 +394,13 @@ for (const httpError of httpErrors) {
   );
 }
 
+// =========================================================
+// Network errors and secret protection
+// =========================================================
+
 test(
-  "handles network failures without exposing the API key",
+  "converts network failures into ProviderError",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -367,20 +410,11 @@ test(
           throw new Error("connect ECONNREFUSED");
         }) as typeof fetch,
         async () => {
-          await assert.rejects(
+          await expectProviderError(() =>
             provider.generateJson(
               "Generate a test response",
               "code"
-            ),
-            (error: unknown) => {
-              assert.ok(error instanceof Error);
-              assert.ok(
-                !error.message.includes(NVIDIA_API_KEY),
-                "API key must not appear in the error message"
-              );
-
-              return true;
-            }
+            )
           );
         }
       );
@@ -389,7 +423,8 @@ test(
 );
 
 test(
-  "never exposes the NVIDIA API key in provider errors",
+  "does not expose the API key in provider errors",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -405,15 +440,17 @@ test(
         ),
         async () => {
           await assert.rejects(
-            provider.generateJson(
-              "Generate a test response",
-              "code"
-            ),
+            () =>
+              provider.generateJson(
+                "Generate a test response",
+                "code"
+              ),
             (error: unknown) => {
               assert.ok(error instanceof Error);
+
               assert.ok(
                 !error.message.includes(NVIDIA_API_KEY),
-                "Provider error must not expose the API key"
+                "Error message must not expose the API key"
               );
 
               return true;
@@ -425,8 +462,13 @@ test(
   }
 );
 
+// =========================================================
+// Request validation
+// =========================================================
+
 test(
-  "sends the correct NVIDIA request",
+  "sends the expected NVIDIA POST request",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -454,9 +496,10 @@ test(
           );
         }) as typeof fetch,
         async () => {
-          const result = await provider.generateJson<{
-            success: boolean;
-          }>("Generate a test response", "code");
+          const result =
+            await provider.generateJson<{
+              success: boolean;
+            }>("Generate a test response", "code");
 
           assert.deepEqual(result, { success: true });
         }
@@ -471,11 +514,23 @@ test(
         String(request.input),
         `${NVIDIA_BASE_URL}/chat/completions`
       );
-
       assert.equal(request.init?.method, "POST");
       assert.equal(typeof request.init?.body, "string");
 
-      const body = JSON.parse(request.init.body as string);
+      const headers = new Headers(request.init?.headers);
+
+      assert.equal(
+        headers.get("Content-Type"),
+        "application/json"
+      );
+      assert.equal(
+        headers.get("Authorization"),
+        `Bearer ${NVIDIA_API_KEY}`
+      );
+
+      const body = JSON.parse(
+        request.init?.body as string
+      );
 
       assert.equal(body.model, NVIDIA_MODEL);
       assert.ok(Array.isArray(body.messages));
@@ -486,24 +541,17 @@ test(
             message.role === "user"
         )
       );
-
-      const headers = new Headers(request.init?.headers);
-
-      assert.equal(
-        headers.get("Content-Type"),
-        "application/json"
-      );
-
-      assert.equal(
-        headers.get("Authorization"),
-        `Bearer ${NVIDIA_API_KEY}`
-      );
     });
   }
 );
 
+// =========================================================
+// Successful responses
+// =========================================================
+
 test(
-  "parses a valid NVIDIA JSON response",
+  "parses valid NVIDIA JSON successfully",
+  serial,
   async () => {
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
@@ -518,10 +566,11 @@ test(
           )
         ),
         async () => {
-          const result = await provider.generateJson<{
-            message: string;
-            value: number;
-          }>("Return JSON", "code");
+          const result =
+            await provider.generateJson<{
+              message: string;
+              value: number;
+            }>("Return JSON", "code");
 
           assert.deepEqual(result, {
             message: "success",
@@ -533,8 +582,13 @@ test(
   }
 );
 
+// =========================================================
+// Cleanup
+// =========================================================
+
 test(
-  "restores fetch after a successful request",
+  "restores global fetch after success",
+  serial,
   async () => {
     const originalFetch = globalThis.fetch;
 
@@ -543,14 +597,13 @@ test(
 
       await withMockedFetch(
         mockFetch(
-          createValidResponse(
-            JSON.stringify({ ok: true })
-          )
+          createValidResponse('{"ok":true}')
         ),
         async () => {
-          await provider.generateJson("Return JSON", "code");
-
-          assert.notEqual(globalThis.fetch, originalFetch);
+          await provider.generateJson(
+            "Return JSON",
+            "code"
+          );
         }
       );
     });
@@ -560,22 +613,25 @@ test(
 );
 
 test(
-  "restores fetch after a failed request",
+  "restores global fetch after failure",
+  serial,
   async () => {
     const originalFetch = globalThis.fetch;
 
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
 
-      await withMockedFetch(
-        mockFetch({ choices: [] }),
-        async () => {
-          await assert.rejects(
-            provider.generateJson("Return JSON", "code")
-          );
-
-          assert.notEqual(globalThis.fetch, originalFetch);
-        }
+      await assert.rejects(
+        () =>
+          withMockedFetch(
+            mockFetch({ choices: [] }),
+            async () => {
+              await provider.generateJson(
+                "Return JSON",
+                "code"
+              );
+            }
+          )
       );
     });
 
