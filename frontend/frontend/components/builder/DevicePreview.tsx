@@ -2,12 +2,11 @@
 "use client";
 
 import {
+  Check,
   Laptop,
+  Monitor,
   Smartphone,
   Tablet,
-  Monitor,
-  Check,
-  ChevronDown,
 } from "lucide-react";
 
 export type Device = "desktop" | "tablet" | "mobile";
@@ -21,31 +20,43 @@ interface DevicePreviewProps {
    TYPES & CONFIGURATION
 ========================================================= */
 
-const deviceConfig = {
+interface DeviceConfig {
+  label: string;
+  description: string;
+  dimensions: string;
+  width: number;
+  height: number;
+  icon: typeof Laptop;
+}
+
+const DEVICE_CONFIG: Record<Device, DeviceConfig> = {
   desktop: {
     label: "Desktop",
-    shortLabel: "Desktop",
-    description: "Preview your website on a desktop screen",
+    description: "Large desktop viewport",
     dimensions: "1440 × 900",
+    width: 1440,
+    height: 900,
     icon: Laptop,
   },
   tablet: {
     label: "Tablet",
-    shortLabel: "Tablet",
-    description: "Preview your website on a tablet screen",
+    description: "Tablet viewport",
     dimensions: "768 × 1024",
+    width: 768,
+    height: 1024,
     icon: Tablet,
   },
   mobile: {
     label: "Mobile",
-    shortLabel: "Mobile",
-    description: "Preview your website on a mobile phone",
+    description: "Mobile phone viewport",
     dimensions: "390 × 844",
+    width: 390,
+    height: 844,
     icon: Smartphone,
   },
-} as const;
+};
 
-const devices: Device[] = ["desktop", "tablet", "mobile"];
+const DEVICES: Device[] = ["desktop", "tablet", "mobile"];
 
 /* =========================================================
    COMPONENT
@@ -55,56 +66,49 @@ export function DevicePreview({
   device,
   setDevice,
 }: DevicePreviewProps) {
-  const activeDevice = deviceConfig[device];
+  const activeDevice = DEVICE_CONFIG[device];
+  const ActiveIcon = activeDevice.icon;
 
   return (
-    <div
-      className="inline-flex max-w-full items-center gap-1.5 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-200 hover:shadow-md"
-      role="group"
-      aria-label="Website preview device selector"
+    <section
+      className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md"
+      aria-label="Website preview settings"
     >
-      {/* ==================================================
-          PREVIEW IDENTITY
-      ================================================== */}
+      {/* PREVIEW IDENTITY */}
 
-      <div className="hidden shrink-0 items-center gap-2 px-2 sm:flex">
-        <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-line bg-ink/[0.035]">
+      <div className="hidden shrink-0 items-center gap-2 pl-1.5 sm:flex">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-ink/[0.035]">
           <Monitor
-            className="h-4 w-4 text-ink/55"
+            className="h-4 w-4 text-ink/60"
             strokeWidth={1.8}
             aria-hidden="true"
           />
         </div>
 
-        <div className="leading-none">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-ink/65">
+        <div className="min-w-0">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/70">
             Preview
           </p>
-
-          <p className="mt-1.5 text-[9px] font-medium text-ink/35">
-            Device mode
+          <p className="mt-1 text-[9px] text-ink/40">
+            Responsive mode
           </p>
         </div>
       </div>
 
-      {/* DIVIDER */}
-
       <div
-        className="hidden h-7 w-px bg-line sm:block"
+        className="hidden h-8 w-px shrink-0 bg-line sm:block"
         aria-hidden="true"
       />
 
-      {/* ==================================================
-          DEVICE SWITCHER
-      ================================================== */}
+      {/* DEVICE SELECTOR */}
 
       <div
-        className="flex items-center gap-1 rounded-xl bg-ink/[0.035] p-1"
+        className="flex min-w-0 items-center gap-1 rounded-xl bg-ink/[0.035] p-1"
         role="group"
-        aria-label="Available preview devices"
+        aria-label="Select preview device"
       >
-        {devices.map((mode) => {
-          const config = deviceConfig[mode];
+        {DEVICES.map((mode) => {
+          const config = DEVICE_CONFIG[mode];
           const Icon = config.icon;
           const isActive = device === mode;
 
@@ -113,24 +117,22 @@ export function DevicePreview({
               key={mode}
               type="button"
               onClick={() => {
-                if (!isActive) {
-                  setDevice(mode);
-                }
+                if (!isActive) setDevice(mode);
               }}
               aria-pressed={isActive}
-              aria-label={`${config.description}${isActive ? ", currently selected" : ""}`}
-              title={config.description}
-              className={`group relative inline-flex h-9 items-center justify-center gap-2 overflow-hidden rounded-lg px-2.5 outline-none transition-all duration-200 ease-out focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1 sm:px-3 ${
+              aria-label={`${config.label}: ${config.dimensions} pixels`}
+              title={`${config.description} (${config.dimensions})`}
+              className={`group relative inline-flex h-9 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg px-2 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/50 focus-visible:ring-offset-1 sm:gap-2 sm:px-3 ${
                 isActive
                   ? "bg-ink text-white shadow-sm"
-                  : "text-ink/45 hover:bg-white hover:text-ink/80 hover:shadow-sm"
+                  : "text-ink/50 hover:bg-white hover:text-ink/80 hover:shadow-sm"
               }`}
             >
-              {/* ACTIVE BACKGROUND ACCENT */}
+              {/* ACTIVE ACCENT */}
 
               {isActive && (
                 <span
-                  className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-teal"
+                  className="absolute inset-x-0 top-0 h-0.5 bg-teal"
                   aria-hidden="true"
                 />
               )}
@@ -138,7 +140,7 @@ export function DevicePreview({
               {/* DEVICE ICON */}
 
               <Icon
-                className={`relative z-10 h-4 w-4 shrink-0 transition-transform duration-200 ${
+                className={`relative h-4 w-4 shrink-0 transition-transform duration-200 ${
                   isActive
                     ? "text-teal"
                     : "group-hover:scale-110"
@@ -150,18 +152,18 @@ export function DevicePreview({
               {/* DEVICE LABEL */}
 
               <span
-                className={`relative z-10 text-[10px] font-bold sm:text-[11px] ${
+                className={`relative text-[10px] font-bold sm:text-[11px] ${
                   isActive ? "text-white" : "text-current"
                 }`}
               >
-                {config.shortLabel}
+                {config.label}
               </span>
 
-              {/* SELECTED CHECK */}
+              {/* SELECTED INDICATOR */}
 
               {isActive && (
                 <Check
-                  className="relative z-10 hidden h-3 w-3 text-teal sm:block"
+                  className="relative hidden h-3.5 w-3.5 text-teal sm:block"
                   strokeWidth={2.5}
                   aria-hidden="true"
                 />
@@ -171,52 +173,48 @@ export function DevicePreview({
         })}
       </div>
 
-      {/* ==================================================
-          CURRENT DEVICE DETAILS
-      ================================================== */}
+      {/* VIEWPORT DETAILS */}
 
-      <div className="relative ml-0.5 hidden items-center gap-2 border-l border-line pl-3 pr-1 md:flex">
-        {/* STATUS INDICATOR */}
-
-        <span
-          className="relative flex h-2 w-2 shrink-0 items-center justify-center"
-          aria-hidden="true"
-        >
-          <span className="absolute h-2 w-2 animate-ping rounded-full bg-emerald-500/30" />
-
-          <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        </span>
-
-        {/* CURRENT DEVICE INFO */}
-
-        <div className="min-w-0 leading-none">
-          <p className="text-[9px] font-medium text-ink/40">
-            Active viewport
-          </p>
-
-          <p className="mt-1.5 whitespace-nowrap text-[10px] font-bold text-ink/75">
-            {activeDevice.label}
-          </p>
+      <div className="hidden min-w-0 items-center gap-2 border-l border-line pl-3 pr-1 md:flex">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal/[0.08]">
+          <ActiveIcon
+            className="h-4 w-4 text-teal"
+            strokeWidth={1.8}
+            aria-hidden="true"
+          />
         </div>
 
-        <div className="ml-1 rounded-lg border border-line bg-ink/[0.025] px-2 py-1.5">
-          <p className="whitespace-nowrap text-[9px] font-semibold tabular-nums text-ink/50">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              aria-hidden="true"
+            />
+            <p className="whitespace-nowrap text-[9px] font-medium text-ink/45">
+              Active viewport
+            </p>
+          </div>
+
+          <p className="mt-1 whitespace-nowrap text-[11px] font-bold text-ink/80">
             {activeDevice.dimensions}
           </p>
         </div>
       </div>
 
-      {/* ==================================================
-          COMPACT VIEWPORT INDICATOR
-      ================================================== */}
+      {/* COMPACT VIEWPORT INDICATOR */}
 
-      <div className="flex items-center gap-1 px-1 md:hidden">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <div className="flex shrink-0 items-center gap-1.5 px-1 md:hidden">
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+          aria-hidden="true"
+        />
 
-        <span className="text-[9px] font-semibold text-ink/45">
-          {activeDevice.label}
+        <span className="text-[9px] font-semibold tabular-nums text-ink/50">
+          {activeDevice.width}
+          <span className="mx-0.5 text-ink/25">×</span>
+          {activeDevice.height}
         </span>
       </div>
-    </div>
+    </section>
   );
 }
