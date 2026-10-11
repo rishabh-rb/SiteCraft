@@ -1,8 +1,6 @@
-
 "use client";
 
 import { useId, useMemo, useState } from "react";
-
 import {
   Search,
   X,
@@ -16,7 +14,6 @@ import {
   FolderOpen,
   Check,
   Sparkles,
-  Folder,
 } from "lucide-react";
 
 import type { GeneratedFile } from "@/lib/api";
@@ -49,16 +46,13 @@ function getFolderPath(path: string): string {
   const normalizedPath = normalizePath(path);
   const lastSlash = normalizedPath.lastIndexOf("/");
 
-  return lastSlash > 0
-    ? normalizedPath.slice(0, lastSlash)
-    : "";
+  return lastSlash > 0 ? normalizedPath.slice(0, lastSlash) : "";
 }
 
 function getFileExtension(path: string): string {
   const fileName = getFileName(path);
   const lastDot = fileName.lastIndexOf(".");
 
-  // Hidden files such as .gitignore have no extension.
   if (lastDot <= 0 || lastDot === fileName.length - 1) {
     return "";
   }
@@ -90,6 +84,9 @@ function getFileIcon(path: string) {
     case "rb":
     case "sh":
     case "bash":
+    case "html":
+    case "htm":
+    case "xml":
       return FileCode2;
 
     case "json":
@@ -103,12 +100,7 @@ function getFileIcon(path: string) {
     case "less":
       return FileType;
 
-    case "html":
-    case "htm":
-    case "xml":
     case "svg":
-      return extension === "svg" ? FileImage : FileCode2;
-
     case "png":
     case "jpg":
     case "jpeg":
@@ -162,19 +154,17 @@ export function FileExplorer({
 
   const normalizedFiles = useMemo<NormalizedFile[]>(() => {
     return files.map((file, originalIndex) => {
-      const path = normalizePath(file.path);
-      const name = getFileName(path);
-      const folderPath = getFolderPath(path);
-      const extension = getFileExtension(path);
+      const normalizedPath = normalizePath(file.path);
+      const name = getFileName(normalizedPath);
+      const folderPath = getFolderPath(normalizedPath);
+      const extension = getFileExtension(normalizedPath);
 
       return {
-        // Preserve the original path for the parent callback.
         path: file.path,
         name,
         folderPath,
         extension,
-        searchText:
-          `${path} ${name} ${folderPath}`.toLowerCase(),
+        searchText: `${normalizedPath} ${name} ${folderPath}`.toLowerCase(),
         originalIndex,
       };
     });
@@ -183,17 +173,16 @@ export function FileExplorer({
   const filteredFiles = useMemo(() => {
     const query = trimmedQuery.toLowerCase();
 
-    if (!query) return normalizedFiles;
+    if (!query) {
+      return normalizedFiles;
+    }
 
     return normalizedFiles.filter((file) =>
       file.searchText.includes(query),
     );
   }, [normalizedFiles, trimmedQuery]);
 
-  const folderCount = useMemo(
-    () => getFolderCount(files),
-    [files],
-  );
+  const folderCount = useMemo(() => getFolderCount(files), [files]);
 
   const selectedExists = useMemo(
     () => files.some((file) => file.path === selectedFile),
@@ -228,8 +217,8 @@ export function FileExplorer({
           </p>
 
           <p className="mt-1.5 max-w-[210px] text-[10px] leading-4 text-ink/40">
-            Generate a website to explore its source files,
-            folders, and assets here.
+            Generate a website to explore its source files, folders, and assets
+            here.
           </p>
         </div>
       </aside>
@@ -241,7 +230,6 @@ export function FileExplorer({
       aria-label="Project file explorer"
       className="flex h-full min-h-0 w-full flex-col border-r border-line bg-paper"
     >
-      {/* Header */}
       <header className="shrink-0 border-b border-line">
         <div className="px-3.5 py-3.5">
           <div className="flex items-start justify-between gap-3">
@@ -266,8 +254,7 @@ export function FileExplorer({
 
                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px] font-medium text-ink/40">
                   <span>
-                    {files.length}{" "}
-                    {files.length === 1 ? "file" : "files"}
+                    {files.length} {files.length === 1 ? "file" : "files"}
                   </span>
 
                   <span aria-hidden="true" className="text-ink/20">
@@ -291,7 +278,6 @@ export function FileExplorer({
             </span>
           </div>
 
-          {/* Search */}
           <div className="relative mt-3.5">
             <label htmlFor={searchId} className="sr-only">
               Search project files and folders
@@ -306,9 +292,7 @@ export function FileExplorer({
               id={searchId}
               type="search"
               value={searchQuery}
-              onChange={(event) =>
-                setSearchQuery(event.target.value)
-              }
+              onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search files or folders..."
               autoComplete="off"
               spellCheck={false}
@@ -323,15 +307,11 @@ export function FileExplorer({
                 title="Clear search"
                 className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-lg text-ink/35 transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
               >
-                <X
-                  className="h-3 w-3"
-                  aria-hidden="true"
-                />
+                <X className="h-3 w-3" aria-hidden="true" />
               </button>
             )}
           </div>
 
-          {/* Search status */}
           <div
             aria-live="polite"
             aria-atomic="true"
@@ -351,7 +331,6 @@ export function FileExplorer({
         </div>
       </header>
 
-      {/* File list */}
       <div className="panel-scroll min-h-0 flex-1 overflow-auto px-2 py-2.5">
         {filteredFiles.length > 0 ? (
           <div className="space-y-0.5">
@@ -375,7 +354,6 @@ export function FileExplorer({
                       : "text-ink/70 hover:bg-ink/[0.035] hover:text-ink focus-visible:bg-ink/[0.05]"
                   }`}
                 >
-                  {/* Active indicator */}
                   <span
                     aria-hidden="true"
                     className={`absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r-full bg-teal transition-all duration-200 ${
@@ -383,7 +361,6 @@ export function FileExplorer({
                     }`}
                   />
 
-                  {/* File icon */}
                   <span
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 ${
                       isSelected
@@ -401,7 +378,6 @@ export function FileExplorer({
                     />
                   </span>
 
-                  {/* File information */}
                   <span className="min-w-0 flex-1">
                     <span
                       className={`block truncate font-mono text-[10px] leading-4 ${
@@ -426,7 +402,6 @@ export function FileExplorer({
                     )}
                   </span>
 
-                  {/* Extension badge */}
                   {file.extension && (
                     <span
                       className={`hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[7px] font-black uppercase tracking-wide transition-colors sm:block ${
@@ -439,7 +414,6 @@ export function FileExplorer({
                     </span>
                   )}
 
-                  {/* Selection indicator */}
                   {isSelected ? (
                     <Check
                       className="h-3 w-3 shrink-0 text-teal"
@@ -456,7 +430,6 @@ export function FileExplorer({
             })}
           </div>
         ) : (
-          /* Search empty state */
           <div className="flex min-h-48 flex-col items-center justify-center px-4 py-6 text-center">
             <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-ink/[0.025]">
               <Search
@@ -487,7 +460,6 @@ export function FileExplorer({
         )}
       </div>
 
-      {/* Footer */}
       <footer className="shrink-0 border-t border-line bg-paper px-3 py-2.5">
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
