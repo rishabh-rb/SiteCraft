@@ -6,6 +6,10 @@ import {
   ProviderError,
 } from "@sitecraft/ml";
 
+/* =========================================================
+   Constants and Types
+========================================================= */
+
 const NVIDIA_API_KEY = "super-secret-nvidia-key";
 const NVIDIA_MODEL = "working-model";
 const NVIDIA_BASE_URL =
@@ -41,6 +45,10 @@ type JsonResponse = {
 
 const serial = { concurrency: false };
 
+/* =========================================================
+   Mock Helpers
+========================================================= */
+
 function mockFetch(
   body: unknown,
   status = 200,
@@ -53,7 +61,10 @@ function mockFetch(
       typeof body === "string"
         ? body
         : JSON.stringify(body),
-      { status, headers }
+      {
+        status,
+        headers,
+      }
     )) as typeof fetch;
 }
 
@@ -118,6 +129,10 @@ function createValidResponse(
   };
 }
 
+/* =========================================================
+   Provider Error Helpers
+========================================================= */
+
 function createProviderError(
   error: unknown,
   expectedCode?: string
@@ -148,9 +163,9 @@ async function expectProviderError(
   });
 }
 
-// =========================================================
-// Model errors
-// =========================================================
+/* =========================================================
+   Model Errors
+========================================================= */
 
 test(
   "throws MODEL_UNAVAILABLE when the model does not exist",
@@ -163,7 +178,8 @@ test(
         mockFetch(
           {
             error: {
-              message: "The requested model is not available",
+              message:
+                "The requested model is not available",
             },
           },
           404
@@ -216,6 +232,7 @@ test(
                 error.message,
                 /NVIDIA_MODEL/i
               );
+
               assert.ok(
                 error.message.includes(NVIDIA_MODEL)
               );
@@ -229,9 +246,9 @@ test(
   }
 );
 
-// =========================================================
-// Malformed responses
-// =========================================================
+/* =========================================================
+   Malformed Responses
+========================================================= */
 
 test(
   "throws MALFORMED_RESPONSE for invalid HTTP JSON",
@@ -345,9 +362,9 @@ for (const response of malformedResponses) {
   );
 }
 
-// =========================================================
-// HTTP errors
-// =========================================================
+/* =========================================================
+   HTTP Errors
+========================================================= */
 
 const httpErrors = [
   {
@@ -377,7 +394,11 @@ for (const item of httpErrors) {
 
         await withMockedFetch(
           mockFetch(
-            { error: { message: item.message } },
+            {
+              error: {
+                message: item.message,
+              },
+            },
             item.status
           ),
           async () => {
@@ -394,9 +415,9 @@ for (const item of httpErrors) {
   );
 }
 
-// =========================================================
-// Network errors and secret protection
-// =========================================================
+/* =========================================================
+   Network Errors
+========================================================= */
 
 test(
   "converts network failures into ProviderError",
@@ -421,6 +442,10 @@ test(
     });
   }
 );
+
+/* =========================================================
+   API Key Security
+========================================================= */
 
 test(
   "does not expose the API key in provider errors",
@@ -462,9 +487,9 @@ test(
   }
 );
 
-// =========================================================
-// Request validation
-// =========================================================
+/* =========================================================
+   NVIDIA Request Validation
+========================================================= */
 
 test(
   "sends the expected NVIDIA POST request",
@@ -499,9 +524,14 @@ test(
           const result =
             await provider.generateJson<{
               success: boolean;
-            }>("Generate a test response", "code");
+            }>(
+              "Generate a test response",
+              "code"
+            );
 
-          assert.deepEqual(result, { success: true });
+          assert.deepEqual(result, {
+            success: true,
+          });
         }
       );
 
@@ -514,15 +544,22 @@ test(
         String(request.input),
         `${NVIDIA_BASE_URL}/chat/completions`
       );
-      assert.equal(request.init?.method, "POST");
-      assert.equal(typeof request.init?.body, "string");
 
-      const headers = new Headers(request.init?.headers);
+      assert.equal(request.init?.method, "POST");
+      assert.equal(
+        typeof request.init?.body,
+        "string"
+      );
+
+      const headers = new Headers(
+        request.init?.headers
+      );
 
       assert.equal(
         headers.get("Content-Type"),
         "application/json"
       );
+
       assert.equal(
         headers.get("Authorization"),
         `Bearer ${NVIDIA_API_KEY}`
@@ -535,6 +572,7 @@ test(
       assert.equal(body.model, NVIDIA_MODEL);
       assert.ok(Array.isArray(body.messages));
       assert.ok(body.messages.length > 0);
+
       assert.ok(
         body.messages.some(
           (message: { role?: string }) =>
@@ -545,9 +583,9 @@ test(
   }
 );
 
-// =========================================================
-// Successful responses
-// =========================================================
+/* =========================================================
+   Successful Responses
+========================================================= */
 
 test(
   "parses valid NVIDIA JSON successfully",
@@ -582,9 +620,9 @@ test(
   }
 );
 
-// =========================================================
-// Cleanup
-// =========================================================
+/* =========================================================
+   Cleanup and Fetch Restoration
+========================================================= */
 
 test(
   "restores global fetch after success",
@@ -621,17 +659,16 @@ test(
     await withNvidiaEnvironment(async () => {
       const provider = createProvider();
 
-      await assert.rejects(
-        () =>
-          withMockedFetch(
-            mockFetch({ choices: [] }),
-            async () => {
-              await provider.generateJson(
-                "Return JSON",
-                "code"
-              );
-            }
-          )
+      await assert.rejects(() =>
+        withMockedFetch(
+          mockFetch({ choices: [] }),
+          async () => {
+            await provider.generateJson(
+              "Return JSON",
+              "code"
+            );
+          }
+        )
       );
     });
 
