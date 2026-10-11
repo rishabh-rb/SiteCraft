@@ -1,12 +1,6 @@
-
 "use client";
 
-import {
-  useId,
-  useMemo,
-  type FormEvent,
-} from "react";
-
+import { useId, useMemo, type FormEvent } from "react";
 import {
   ArrowUpRight,
   Bot,
@@ -17,7 +11,6 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 
 interface PromptInputProps {
@@ -77,10 +70,7 @@ export function PromptInput({
     !working;
 
   const selectedExample = useMemo(
-    () =>
-      EXAMPLE_PROMPTS.some(
-        (example) => example.prompt === prompt,
-      ),
+    () => EXAMPLE_PROMPTS.some((example) => example.prompt === prompt),
     [prompt],
   );
 
@@ -92,14 +82,11 @@ export function PromptInput({
         : "text-ink/40";
 
   const promptError =
-    trimmedPrompt.length > 0 &&
-    trimmedPrompt.length < MIN_CHARACTERS
+    trimmedPrompt.length > 0 && trimmedPrompt.length < MIN_CHARACTERS
       ? `Enter at least ${MIN_CHARACTERS} characters to describe your website.`
       : "";
 
-  const handleSubmit = (
-    event: FormEvent<HTMLFormElement>,
-  ) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!canGenerate) return;
@@ -118,7 +105,6 @@ export function PromptInput({
       className="space-y-5"
       aria-labelledby={`${generatedId}-heading`}
     >
-      {/* Section heading */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-accent/15 bg-accent/10 shadow-sm">
@@ -143,8 +129,7 @@ export function PromptInput({
             </div>
 
             <p className="mt-1 max-w-sm text-xs leading-5 text-ink/50">
-              Turn your idea into a polished website with a
-              simple description.
+              Turn your idea into a polished website with a simple description.
             </p>
           </div>
         </div>
@@ -160,11 +145,7 @@ export function PromptInput({
         </div>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-3"
-      >
-        {/* Prompt editor */}
+      <form onSubmit={handleSubmit} className="space-y-3">
         <div
           className={`group relative overflow-hidden rounded-2xl border bg-paper shadow-sm transition-all duration-200 ${
             working
@@ -172,7 +153,6 @@ export function PromptInput({
               : "border-line hover:border-ink/20 focus-within:border-accent/50 focus-within:shadow-md focus-within:ring-4 focus-within:ring-accent/5"
           }`}
         >
-          {/* Editor toolbar */}
           <div className="flex min-h-11 items-center justify-between gap-3 border-b border-line/70 px-4 py-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <div
@@ -192,10 +172,7 @@ export function PromptInput({
             <div className="flex shrink-0 items-center gap-2">
               {selectedExample && (
                 <span className="hidden items-center gap-1 text-accent sm:flex">
-                  <Check
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
                   <span className="text-[9px] font-bold">
                     Example selected
                   </span>
@@ -210,20 +187,13 @@ export function PromptInput({
                   title="Clear prompt"
                   className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/40 transition-colors hover:bg-black/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                 >
-                  <X
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               )}
             </div>
           </div>
 
-          {/* Textarea */}
-          <label
-            htmlFor={promptId}
-            className="sr-only"
-          >
+          <label htmlFor={promptId} className="sr-only">
             Describe the website you want to generate
           </label>
 
@@ -231,9 +201,7 @@ export function PromptInput({
             id={promptId}
             name="prompt"
             value={prompt}
-            onChange={(event) =>
-              setPrompt(event.target.value)
-            }
+            onChange={(event) => setPrompt(event.target.value)}
             placeholder={
               "Describe your website idea...\n\nFor example: Create a modern dashboard with a sidebar, analytics charts, user profiles, and a clean light theme."
             }
@@ -247,7 +215,6 @@ export function PromptInput({
             className="min-h-[175px] w-full resize-y bg-transparent px-4 py-4 text-sm leading-6 text-ink outline-none placeholder:text-ink/30 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[195px]"
           />
 
-          {/* Helpful prompt guidance */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/60 bg-paper/80 px-4 py-3">
             <p
               id={hintId}
@@ -271,14 +238,12 @@ export function PromptInput({
             </span>
           </div>
 
-          {/* Bottom focus accent */}
           <div
             className="absolute bottom-0 left-0 h-0.5 w-full origin-left scale-x-0 bg-accent transition-transform duration-300 group-focus-within:scale-x-100"
             aria-hidden="true"
           />
         </div>
 
-        {/* Validation message */}
         {promptError && (
           <p
             id={errorId}
@@ -289,7 +254,6 @@ export function PromptInput({
           </p>
         )}
 
-        {/* Generate website button */}
         <Button
           type="submit"
           variant="accent"
@@ -335,12 +299,13 @@ export function PromptInput({
             : trimmedPrompt.length === 0
               ? "Enter a prompt or choose a ready-made example to begin."
               : trimmedPrompt.length < MIN_CHARACTERS
-                ? `${MIN_CHARACTERS - trimmedPrompt.length} more characters needed to generate.`
+                ? `${
+                    MIN_CHARACTERS - trimmedPrompt.length
+                  } more characters needed to generate.`
                 : `${remainingCharacters.toLocaleString()} characters available.`}
         </p>
       </form>
 
-      {/* Quick-start prompts */}
       <div className="space-y-3 pt-1">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -386,9 +351,7 @@ export function PromptInput({
                   <div className="min-w-0">
                     <span
                       className={`text-[11px] font-black ${
-                        isSelected
-                          ? "text-accent"
-                          : "text-ink/80"
+                        isSelected ? "text-accent" : "text-ink/80"
                       }`}
                     >
                       {example.title}
@@ -427,9 +390,7 @@ export function PromptInput({
                         : "text-ink/40 group-hover:text-accent"
                     }`}
                   >
-                    {isSelected
-                      ? "Selected"
-                      : "Use this prompt"}
+                    {isSelected ? "Selected" : "Use this prompt"}
                   </span>
 
                   {!isSelected && (
@@ -440,12 +401,9 @@ export function PromptInput({
                   )}
                 </div>
 
-                {/* Selection indicator */}
                 <div
                   className={`absolute bottom-0 left-0 h-0.5 bg-accent transition-all duration-300 ${
-                    isSelected
-                      ? "w-full"
-                      : "w-0 group-hover:w-1/3"
+                    isSelected ? "w-full" : "w-0 group-hover:w-1/3"
                   }`}
                   aria-hidden="true"
                 />
