@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -31,7 +30,6 @@ import {
   Zap,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/lib/api";
 
 interface ChatPanelProps {
@@ -132,9 +130,11 @@ export function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+
   const shouldAutoScrollRef = useRef(true);
   const previousMessageCountRef = useRef(messages.length);
 
@@ -145,6 +145,7 @@ export function ChatPanel({
   const canEdit = !disabled && !working;
   const trimmedText = chatText.trim();
   const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
+
   const characterProgress = Math.min(
     (chatText.length / MAX_MESSAGE_LENGTH) * 100,
     100,
@@ -667,47 +668,6 @@ export function ChatPanel({
           </div>
         )}
 
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={!canSubmit}
-          aria-label={
-            working ? "Applying website changes" : "Apply website edit"
-          }
-          className="group relative w-full gap-2 overflow-hidden rounded-xl font-bold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {canSubmit && (
-            <span
-              className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-white/10 transition-all duration-700 group-hover:left-[110%]"
-              aria-hidden="true"
-            />
-          )}
-
-          {working ? (
-            <>
-              <Loader2
-                className="h-4 w-4 animate-spin"
-                aria-hidden="true"
-              />
-              <span>Applying changes...</span>
-            </>
-          ) : (
-            <>
-              <Sparkles
-                className="h-4 w-4 transition-transform group-hover:rotate-12"
-                aria-hidden="true"
-              />
-              <span>
-                {trimmedText ? "Apply Edit" : "Describe an Edit"}
-              </span>
-              <ArrowUp
-                className="ml-auto h-4 w-4 opacity-50 transition-transform group-hover:-translate-y-0.5"
-                aria-hidden="true"
-              />
-            </>
-          )}
-        </Button>
-
         {disabled && (
           <div
             className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink/[0.025] px-3 py-3"
@@ -765,16 +725,14 @@ function EmptyChatState() {
       </div>
 
       <div className="relative mt-5 flex flex-wrap justify-center gap-2">
-        {["Change colors", "Add a section", "Improve layout"].map(
-          (idea) => (
-            <span
-              key={idea}
-              className="rounded-full border border-line bg-paper/80 px-2.5 py-1 text-[10px] font-medium text-ink/50"
-            >
-              {idea}
-            </span>
-          ),
-        )}
+        {["Change colors", "Add a section", "Improve layout"].map((idea) => (
+          <span
+            key={idea}
+            className="rounded-full border border-line bg-paper/80 px-2.5 py-1 text-[10px] font-medium text-ink/50"
+          >
+            {idea}
+          </span>
+        ))}
       </div>
     </div>
   );
