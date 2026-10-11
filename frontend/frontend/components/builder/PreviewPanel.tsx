@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -27,10 +26,6 @@ import {
 
 import { DevicePreview, type Device } from "./DevicePreview";
 import type { GeneratedWebsite } from "@/lib/api";
-
-/* =========================================================
-   TYPES
-========================================================= */
 
 interface PreviewPanelProps {
   website?: GeneratedWebsite;
@@ -66,10 +61,6 @@ interface PreviewFrameProps {
   fullscreen?: boolean;
 }
 
-/* =========================================================
-   CONFIGURATION
-========================================================= */
-
 const PREVIEW_TIMEOUT = 15000;
 const REFRESH_MIN_DURATION = 450;
 const BLOB_URL_LIFETIME = 60000;
@@ -91,10 +82,6 @@ const deviceLabels: Record<Device, string> = {
   tablet: "Tablet",
   mobile: "Mobile",
 };
-
-/* =========================================================
-   MAIN COMPONENT
-========================================================= */
 
 export function PreviewPanel({
   website,
@@ -132,10 +119,6 @@ export function PreviewPanel({
     website?.plan?.siteName || "Website Preview";
 
   const html = website?.html ?? "";
-
-  /* =======================================================
-     TIMER UTILITIES
-  ======================================================= */
 
   const clearRefreshTimer = useCallback(() => {
     if (refreshTimerRef.current !== null) {
@@ -178,10 +161,6 @@ export function PreviewPanel({
     clearBlobUrls,
   ]);
 
-  /* =======================================================
-     PREVIEW LOADING LIFECYCLE
-  ======================================================= */
-
   const beginLoading = useCallback(() => {
     clearPreviewTimeout();
 
@@ -195,9 +174,10 @@ export function PreviewPanel({
       }
 
       setPreviewState((current) =>
-        current === "loading" ? "error" : current,
+        current === "loading" ? "error" : current
       );
 
+      setRefreshing(false);
       timeoutRef.current = null;
     }, PREVIEW_TIMEOUT);
   }, [clearPreviewTimeout]);
@@ -235,12 +215,11 @@ export function PreviewPanel({
 
     setPreviewState("ready");
 
-    const elapsed =
-      Date.now() - refreshStartedRef.current;
+    const elapsed = Date.now() - refreshStartedRef.current;
 
     const remaining = Math.max(
       0,
-      REFRESH_MIN_DURATION - elapsed,
+      REFRESH_MIN_DURATION - elapsed
     );
 
     clearRefreshTimer();
@@ -258,10 +237,6 @@ export function PreviewPanel({
     setPreviewState("error");
     setRefreshing(false);
   }, [clearPreviewTimeout, clearRefreshTimer]);
-
-  /* =======================================================
-     REFRESH
-  ======================================================= */
 
   const handleRefresh = useCallback(() => {
     if (!hasWebsite || refreshing) return;
@@ -284,10 +259,6 @@ export function PreviewPanel({
     clearRefreshTimer,
     beginLoading,
   ]);
-
-  /* =======================================================
-     FULLSCREEN
-  ======================================================= */
 
   const openFullscreen = useCallback(() => {
     if (!hasWebsite) return;
@@ -315,17 +286,9 @@ export function PreviewPanel({
 
     return () => {
       document.body.style.overflow = previousOverflow;
-
-      window.removeEventListener(
-        "keydown",
-        handleKeyDown,
-      );
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [fullscreen, closeFullscreen]);
-
-  /* =======================================================
-     OPEN IN NEW TAB
-  ======================================================= */
 
   const openInNewTab = useCallback(() => {
     if (!hasWebsite) return;
@@ -334,7 +297,6 @@ export function PreviewPanel({
     let blobUrl: string | null = null;
 
     try {
-      // Open synchronously to reduce popup-blocker issues.
       previewWindow = window.open("", "_blank");
 
       if (!previewWindow) return;
@@ -384,16 +346,11 @@ export function PreviewPanel({
     }
   }, [hasWebsite, html]);
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
-
   return (
     <section
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#d8d1c5]"
       aria-label="Website preview"
     >
-      {/* Main toolbar */}
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-white px-3 shadow-sm sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div
@@ -439,7 +396,6 @@ export function PreviewPanel({
           </div>
         </div>
 
-        {/* Desktop device controls */}
         <div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
           <DevicePreview
             device={device}
@@ -447,7 +403,6 @@ export function PreviewPanel({
           />
         </div>
 
-        {/* Toolbar actions */}
         <div className="flex shrink-0 items-center gap-1">
           <PreviewAction
             label="Refresh preview"
@@ -474,7 +429,6 @@ export function PreviewPanel({
         </div>
       </header>
 
-      {/* Mobile device controls */}
       <div className="flex shrink-0 justify-center border-b border-line bg-white px-3 py-2 md:hidden">
         <DevicePreview
           device={device}
@@ -482,7 +436,6 @@ export function PreviewPanel({
         />
       </div>
 
-      {/* Preview viewport */}
       <main className="panel-scroll relative flex min-h-0 flex-1 justify-center overflow-auto p-3 sm:p-5 lg:p-6">
         {hasWebsite ? (
           <div
@@ -520,7 +473,6 @@ export function PreviewPanel({
         )}
       </main>
 
-      {/* Status bar */}
       {hasWebsite && (
         <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
           <div className="flex min-w-0 items-center gap-3 text-ink/45">
@@ -544,7 +496,6 @@ export function PreviewPanel({
         </footer>
       )}
 
-      {/* Fullscreen dialog */}
       {fullscreen && hasWebsite && (
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
@@ -670,10 +621,6 @@ export function PreviewPanel({
   );
 }
 
-/* =========================================================
-   REUSABLE PREVIEW FRAME
-========================================================= */
-
 function PreviewFrame({
   html,
   title,
@@ -685,7 +632,6 @@ function PreviewFrame({
 }: PreviewFrameProps) {
   return (
     <>
-      {/* Browser chrome */}
       {device !== "mobile" && (
         <div className="flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3">
           <div className="flex items-center gap-1.5">
@@ -703,7 +649,6 @@ function PreviewFrame({
         </div>
       )}
 
-      {/* Mobile notch */}
       {device === "mobile" && (
         <div
           className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-28 -translate-x-1/2 rounded-b-2xl bg-[#222]"
@@ -711,7 +656,6 @@ function PreviewFrame({
         />
       )}
 
-      {/* Sandboxed generated website */}
       <iframe
         key={refreshKey}
         title={title}
@@ -730,10 +674,6 @@ function PreviewFrame({
     </>
   );
 }
-
-/* =========================================================
-   ACTION BUTTON
-========================================================= */
 
 function PreviewAction({
   children,
@@ -771,10 +711,6 @@ function PreviewAction({
     </button>
   );
 }
-
-/* =========================================================
-   STATUS INDICATOR
-========================================================= */
 
 function PreviewStatus({
   working,
@@ -831,10 +767,6 @@ function PreviewStatus({
   );
 }
 
-/* =========================================================
-   LOADING OVERLAY
-========================================================= */
-
 function PreviewLoadingOverlay({
   fullscreen = false,
 }: {
@@ -851,7 +783,6 @@ function PreviewLoadingOverlay({
       <div className="flex min-w-[220px] items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.12)]">
         <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
           <span className="absolute inset-0 animate-pulse rounded-lg bg-accent/5" />
-
           <Loader2 className="relative h-4 w-4 animate-spin text-accent" />
         </div>
 
@@ -868,10 +799,6 @@ function PreviewLoadingOverlay({
     </div>
   );
 }
-
-/* =========================================================
-   ERROR OVERLAY
-========================================================= */
 
 function PreviewErrorOverlay({
   onRetry,
@@ -908,10 +835,6 @@ function PreviewErrorOverlay({
     </div>
   );
 }
-
-/* =========================================================
-   EMPTY PREVIEW
-========================================================= */
 
 function EmptyPreview({
   working,
@@ -995,10 +918,6 @@ function EmptyPreview({
     </div>
   );
 }
-
-/* =========================================================
-   FEATURE BADGE
-========================================================= */
 
 function PreviewHint({
   text,
