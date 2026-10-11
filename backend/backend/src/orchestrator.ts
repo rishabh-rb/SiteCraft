@@ -1,727 +1,664 @@
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 
-test("runs the AI-backed generation pipeline end to end", async () => {
-  const tempDir = await mkdtemp(
-    path.join(os.tmpdir(), "sitecraft-pipeline-")
+/* =========================================================
+   Types
+========================================================= */
+
+type JsonObject = Record<string, unknown>;
+
+type MockRequest = {
+  url: string;
+  method?: string;
+  headers: Headers;
+  body: string;
+};
+
+type PipelineResponse = {
+  siteName: string;
+  siteDescription: string;
+  pages: Array<{
+    name: string;
+    slug: string;
+    pageType: string;
+    sections: string[];
+  }>;
+  theme: string;
+  colorPalette: Record<string, string>;
+  fontFamily: string;
+  features: string[];
+};
+
+type ContentResponse = {
+  heroTitle: string;
+  heroSubtitle: string;
+  primaryCta: string;
+  secondaryCta: string;
+  sections: Array<{ title: string; body: string }>;
+  testimonials: Array<{
+    quote: string;
+    name: string;
+    role: string;
+  }>;
+  faq: Array<{ question: string; answer: string }>;
+  seo: { title: string; description: string };
+};
+
+/* =========================================================
+   Test Data
+========================================================= */
+
+const EXPECTED_PROVIDER_CALLS = 5;
+const EXPECTED_PROVIDER = "nvidia";
+const EXPECTED_MODEL = "qwen/qwen3-coder-480b-a35b-instruct";
+const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
+
+const plan: PipelineResponse = {
+  siteName: "Northstar Studio",
+  siteDescription: "A clear, high-trust studio website.",
+  pages: [
+    {
+      name: "Home",
+      slug: "/",
+      pageType: "landing",
+      sections: ["hero", "proof", "contact"],
+    },
+  ],
+  theme: "editorial",
+  colorPalette: {
+    primary: "#0f766e",
+    secondary: "#99f6e4",
+    background: "#071313",
+    foreground: "#ecfdf5",
+  },
+  fontFamily: "Inter, sans-serif",
+  features: ["responsive", "accessible"],
+};
+
+const content: ContentResponse = {
+  heroTitle: "Design systems that ship",
+  heroSubtitle:
+    "We help teams move from idea to launch without losing the thread.",
+  primaryCta: "Start a project",
+  secondaryCta: "See the process",
+  sections: [
+    {
+      title: "Built for momentum",
+      body:
+        "A focused workflow keeps the output practical and shippable.",
+    },
+  ],
+  testimonials: [
+    {
+      quote: "The first draft was already useful.",
+      name: "Ava Chen",
+      role: "Product Lead",
+    },
+  ],
+  faq: [
+    {
+      question: "Do you support revisions?",
+      answer:
+        "Yes. The generated project can be revised in place.",
+    },
+  ],
+  seo: {
+    title: "Northstar Studio",
+    description: "A clear, high-trust studio website.",
+  },
+};
+
+const design = {
+  layout:
+    "Editorial hero with a compact proof grid and conversion footer.",
+  componentHierarchy: [
+    "SiteShell",
+    "Hero",
+    "ProofGrid",
+    "ContactFooter",
+  ],
+  tokens: {
+    radius: "24px",
+    spacing: "clamp(1rem, 2vw, 2rem)",
+    shadow: "0 24px 80px rgba(0,0,0,.25)",
+  },
+  responsiveRules: [
+    "Collapse navigation under 760px",
+    "Use one-column cards under 900px",
+  ],
+};
+
+const code = {
+  html: "<main><h1>Northstar Studio</h1></main>",
+  files: [
+    {
+      path: "src/index.tsx",
+      language: "tsx",
+      content:
+        "export default function App() { return <main />; }",
+    },
+    {
+      path: "README.md",
+      language: "md",
+      content: "# Northstar Studio",
+    },
+    {
+      path: "package.json",
+      language: "json",
+      content: '{"name":"northstar-studio"}',
+    },
+  ],
+  assets: [],
+};
+
+const qa = {
+  passed: true,
+  score: 98,
+  issues: [],
+};
+
+/* =========================================================
+   Reusable Helpers
+========================================================= */
+
+/**
+ * Converts a JSON value into a mock NVIDIA chat response.
+ */
+function createProviderResponse(value: unknown): Response {
+  return new Response(
+    JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify(value),
+          },
+        },
+      ],
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+}
+
+/**
+ * Parses a recorded request body safely.
+ */
+function parseRequestBody(body: string): JsonObject {
+  const parsed: unknown = JSON.parse(body);
+
+  assert.ok(
+    typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed),
+    "Provider request body must be a JSON object"
   );
 
-  const originalEnv = { ...process.env };
-  const originalFetch = globalThis.fetch;
+  return parsed as JsonObject;
+}
 
-  const plan = {
-    siteName: "Northstar Studio",
-    siteDescription: "A clear, high-trust studio website.",
-    pages: [
-      {
-        name: "Home",
-        slug: "/",
-        pageType: "landing",
-        sections: ["hero", "proof", "contact"],
-      },
-    ],
-    theme: "editorial",
-    colorPalette: {
-      primary: "#0f766e",
-      secondary: "#99f6e4",
-      background: "#071313",
-      foreground: "#ecfdf5",
-    },
-    fontFamily: "Inter, sans-serif",
-    features: ["responsive", "accessible"],
-  };
+/**
+ * Restores environment variables to their original state.
+ */
+function restoreEnvironment(
+  originalEnv: NodeJS.ProcessEnv
+): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
 
-  const content = {
-    heroTitle: "Design systems that ship",
-    heroSubtitle:
-      "We help teams move from idea to launch without losing the thread.",
-    primaryCta: "Start a project",
-    secondaryCta: "See the process",
-    sections: [
-      {
-        title: "Built for momentum",
-        body:
-          "A focused workflow keeps the output practical and shippable.",
-      },
-    ],
-    testimonials: [
-      {
-        quote: "The first draft was already useful.",
-        name: "Ava Chen",
-        role: "Product Lead",
-      },
-    ],
-    faq: [
-      {
-        question: "Do you support revisions?",
-        answer:
-          "Yes. The generated project can be revised in place.",
-      },
-    ],
-    seo: {
-      title: "Northstar Studio",
-      description:
-        "A clear, high-trust studio website.",
-    },
-  };
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
 
-  const design = {
-    layout:
-      "Editorial hero with a compact proof grid and conversion footer.",
-    componentHierarchy: [
-      "SiteShell",
-      "Hero",
-      "ProofGrid",
-      "ContactFooter",
-    ],
-    tokens: {
-      radius: "24px",
-      spacing: "clamp(1rem, 2vw, 2rem)",
-      shadow:
-        "0 24px 80px rgba(0,0,0,.25)",
-    },
-    responsiveRules: [
-      "Collapse navigation under 760px",
-      "Use one-column cards under 900px",
-    ],
-  };
+/**
+ * Checks the common properties of every provider request.
+ */
+function assertProviderRequests(
+  requests: MockRequest[],
+  expectedCount: number
+): JsonObject[] {
+  assert.equal(requests.length, expectedCount);
 
-  const code = {
-    html: "<main><h1>Northstar Studio</h1></main>",
-    files: [
-      {
-        path: "src/index.tsx",
-        language: "tsx",
-        content:
-          "export default function App() { return <main />; }",
-      },
-      {
-        path: "README.md",
-        language: "md",
-        content: "# Northstar Studio",
-      },
-      {
-        path: "package.json",
-        language: "json",
-        content: '{"name":"northstar-studio"}',
-      },
-    ],
-    assets: [],
-  };
-
-  const qa = {
-    passed: true,
-    score: 98,
-    issues: [],
-  };
-
-  /*
-   * The real orchestrator makes five provider calls:
-   *
-   * 1. planner
-   * 2. content
-   * 3. ui
-   * 4. code
-   * 5. qa
-   *
-   * The image agent is separate and does not call the
-   * NVIDIA provider directly.
-   */
-  const responses = [
-    plan,
-    content,
-    design,
-    code,
-    qa,
-  ];
-
-  let callIndex = 0;
-
-  const requests: Array<{
-    url: string;
-    method?: string;
-    body?: BodyInit | null;
-  }> = [];
-
-  process.env.SITECRAFT_DATA_DIR = tempDir;
-
-  delete process.env.DATABASE_URL;
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.BYNARA_API_KEY;
-  delete process.env.OPENAI_API_KEY;
-
-  process.env.NVIDIA_API_KEY = "nvidia-key";
-  process.env.NVIDIA_BASE_URL =
-    "https://integrate.api.nvidia.com/v1";
-  process.env.NVIDIA_MODEL =
-    "qwen/qwen3-coder-480b-a35b-instruct";
-
-  /*
-   * Mock NVIDIA API.
-   *
-   * Each request receives the next expected response.
-   */
-  globalThis.fetch = (async (input, init) => {
-    const url = String(input);
-
-    requests.push({
-      url,
-      method: init?.method,
-      body: init?.body,
-    });
-
-    assert.ok(
-      callIndex < responses.length,
-      "Pipeline made more NVIDIA API calls than expected"
-    );
-
-    const response = responses[callIndex];
-
-    callIndex += 1;
-
-    return new Response(
-      JSON.stringify({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(response),
-            },
-          },
-        ],
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-  }) as typeof fetch;
-
-  try {
-    const { createProject, getProject } =
-      await import("./store.js");
-
-    const { generateProject } =
-      await import("./orchestrator.js");
-
-    /* =====================================================
-       Project Creation
-    ===================================================== */
-
-    const project = await createProject({
-      userId: "demo-user",
-      name: "Northstar",
-      description: "Demo",
-      initialPrompt: "Build a studio site",
-    });
-
-    assert.ok(
-      project.id,
-      "Project should be created with an ID"
+  return requests.map((request, index) => {
+    assert.match(
+      request.url,
+      /^https:\/\/integrate\.api\.nvidia\.com\/v1\/chat\/completions(?:\?.*)?$/,
+      `Request ${index + 1} should target NVIDIA chat completions`
     );
 
     assert.equal(
-      project.name,
-      "Northstar",
-      "Project name should be stored correctly"
+      request.method,
+      "POST",
+      `Request ${index + 1} should use POST`
     );
 
     assert.equal(
-      project.userId,
-      "demo-user",
-      "Project should belong to the correct user"
+      request.headers.get("Authorization"),
+      "Bearer nvidia-key",
+      `Request ${index + 1} should contain the NVIDIA API key`
     );
 
-    /* =====================================================
-       Pipeline Execution
-    ===================================================== */
-
-    const result = await generateProject(
-      project.id,
-      "Build a studio site"
+    assert.match(
+      request.headers.get("Content-Type") ?? "",
+      /application\/json/i,
+      `Request ${index + 1} should use JSON content`
     );
 
-    const stored = await getProject(project.id);
-
-    /* =====================================================
-       Provider / API Assertions
-    ===================================================== */
+    const body = parseRequestBody(request.body);
 
     assert.equal(
-      callIndex,
-      5,
-      "Pipeline should make exactly 5 NVIDIA provider calls"
-    );
-
-    assert.equal(
-      requests.length,
-      5,
-      "Exactly 5 mocked NVIDIA requests should be made"
+      body.model,
+      EXPECTED_MODEL,
+      `Request ${index + 1} should use the configured model`
     );
 
     assert.ok(
-      requests.every((request) =>
-        request.url.includes("integrate.api.nvidia.com")
-      ),
-      "All provider requests should use the NVIDIA API"
+      Array.isArray(body.messages),
+      `Request ${index + 1} should contain chat messages`
     );
 
-    assert.ok(
-      requests.every(
-        (request) => request.method === "POST"
-      ),
-      "All provider requests should use POST"
+    return body;
+  });
+}
+
+/* =========================================================
+   End-to-End Generation Pipeline
+========================================================= */
+
+test(
+  "runs the AI-backed generation pipeline end to end",
+  async () => {
+    const tempDir = await mkdtemp(
+      path.join(os.tmpdir(), "sitecraft-pipeline-")
     );
 
-    assert.ok(
-      requests.every(
-        (request) => typeof request.body === "string"
-      ),
-      "Every provider request should contain a request body"
-    );
+    const originalEnv = { ...process.env };
+    const originalFetch = globalThis.fetch;
 
-    const parsedRequests = requests.map((request) => {
-      assert.ok(
-        typeof request.body === "string",
-        "Provider request body should be a string"
+    try {
+      /* ---------------------------------------------------
+         Configure an isolated test environment
+      --------------------------------------------------- */
+
+      process.env.SITECRAFT_DATA_DIR = tempDir;
+
+      delete process.env.DATABASE_URL;
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.BYNARA_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+
+      process.env.NVIDIA_API_KEY = "nvidia-key";
+      process.env.NVIDIA_BASE_URL = NVIDIA_BASE_URL;
+      process.env.NVIDIA_MODEL = EXPECTED_MODEL;
+
+      /* ---------------------------------------------------
+         Prepare the five mocked provider responses
+      --------------------------------------------------- */
+
+      const responses: unknown[] = [
+        plan,
+        content,
+        design,
+        code,
+        qa,
+      ];
+
+      let callIndex = 0;
+
+      const requests: MockRequest[] = [];
+
+      globalThis.fetch = (async (
+        input: string | URL | Request,
+        init?: RequestInit
+      ): Promise<Response> => {
+        const url = String(input);
+        const headers = new Headers(
+          init?.headers ??
+            (input instanceof Request ? input.headers : undefined)
+        );
+
+        const rawBody =
+          typeof init?.body === "string"
+            ? init.body
+            : input instanceof Request
+              ? await input.clone().text()
+              : "";
+
+        requests.push({
+          url,
+          method: init?.method ??
+            (input instanceof Request ? input.method : undefined),
+          headers,
+          body: rawBody,
+        });
+
+        assert.ok(
+          callIndex < responses.length,
+          `Unexpected provider call ${callIndex + 1}; expected only ${responses.length} calls`
+        );
+
+        const responseData = responses[callIndex];
+
+        callIndex += 1;
+
+        return createProviderResponse(responseData);
+      }) as typeof fetch;
+
+      /* ---------------------------------------------------
+         Import application modules after configuration
+      --------------------------------------------------- */
+
+      const { createProject, getProject } =
+        await import("./store.js");
+
+      const { generateProject } =
+        await import("./orchestrator.js");
+
+      /* ---------------------------------------------------
+         1. Create a project
+      --------------------------------------------------- */
+
+      const project = await createProject({
+        userId: "demo-user",
+        name: "Northstar",
+        description: "Demo",
+        initialPrompt: "Build a studio site",
+      });
+
+      assert.ok(project.id, "Project should have an ID");
+      assert.equal(project.name, "Northstar");
+      assert.equal(project.userId, "demo-user");
+
+      /* ---------------------------------------------------
+         2. Execute the generation pipeline
+      --------------------------------------------------- */
+
+      const result = await generateProject(
+        project.id,
+        "Build a studio site"
       );
 
-      const body = JSON.parse(request.body);
+      const stored = await getProject(project.id);
+
+      assert.ok(result, "Pipeline should return a result");
+      assert.ok(stored, "Generated project should be stored");
+
+      /* ---------------------------------------------------
+         3. Validate provider requests
+      --------------------------------------------------- */
 
       assert.equal(
-        body.model,
-        "qwen/qwen3-coder-480b-a35b-instruct",
-        "Each NVIDIA request should use the configured model"
+        callIndex,
+        EXPECTED_PROVIDER_CALLS,
+        "Pipeline should make exactly five provider calls"
       );
 
-      return body;
-    });
+      const parsedRequests = assertProviderRequests(
+        requests,
+        EXPECTED_PROVIDER_CALLS
+      );
 
-    assert.equal(
-      parsedRequests.length,
-      5,
-      "All five provider requests should be valid JSON requests"
-    );
+      assert.equal(parsedRequests.length, 5);
+      assert.equal(
+        result.provider,
+        EXPECTED_PROVIDER,
+        "NVIDIA should be the active provider"
+      );
 
-    assert.equal(
-      result.provider,
-      "nvidia",
-      "The active provider should be NVIDIA"
-    );
+      /* ---------------------------------------------------
+         4. Validate quality assurance
+      --------------------------------------------------- */
 
-    /* =====================================================
-       QA Assertions
-    ===================================================== */
+      assert.equal(result.qa.passed, qa.passed);
+      assert.equal(result.qa.score, qa.score);
+      assert.deepEqual(result.qa.issues, qa.issues);
 
-    assert.equal(
-      result.qa.passed,
-      true,
-      "Generated website should pass QA"
-    );
+      /* ---------------------------------------------------
+         5. Validate the generated plan
+      --------------------------------------------------- */
 
-    assert.equal(
-      result.qa.score,
-      98,
-      "QA score should be 98"
-    );
+      assert.equal(result.website.plan.siteName, plan.siteName);
+      assert.equal(
+        result.website.plan.siteDescription,
+        plan.siteDescription
+      );
+      assert.equal(result.website.plan.theme, plan.theme);
+      assert.equal(
+        result.website.plan.fontFamily,
+        plan.fontFamily
+      );
 
-    assert.deepEqual(
-      result.qa.issues,
-      [],
-      "QA should contain no issues"
-    );
+      assert.deepEqual(
+        result.website.plan.colorPalette,
+        plan.colorPalette
+      );
 
-    /* =====================================================
-       Plan Assertions
-    ===================================================== */
+      assert.deepEqual(
+        result.website.plan.features,
+        plan.features
+      );
 
-    assert.equal(
-      result.website.plan.siteName,
-      plan.siteName,
-      "Generated site name should match the plan"
-    );
+      assert.deepEqual(
+        result.website.plan.pages,
+        plan.pages
+      );
 
-    assert.equal(
-      result.website.plan.siteDescription,
-      plan.siteDescription,
-      "Generated site description should match the plan"
-    );
+      /* ---------------------------------------------------
+         6. Validate generated content
+      --------------------------------------------------- */
 
-    assert.equal(
-      result.website.plan.theme,
-      plan.theme,
-      "Generated theme should match the plan"
-    );
+      assert.equal(
+        result.website.content.heroTitle,
+        content.heroTitle
+      );
 
-    assert.equal(
-      result.website.plan.fontFamily,
-      plan.fontFamily,
-      "Generated font family should match the plan"
-    );
+      assert.equal(
+        result.website.content.heroSubtitle,
+        content.heroSubtitle
+      );
 
-    assert.deepEqual(
-      result.website.plan.colorPalette,
-      plan.colorPalette,
-      "Generated color palette should match the plan"
-    );
+      assert.equal(
+        result.website.content.primaryCta,
+        content.primaryCta
+      );
 
-    assert.deepEqual(
-      result.website.plan.features,
-      plan.features,
-      "Generated features should match the plan"
-    );
+      assert.equal(
+        result.website.content.secondaryCta,
+        content.secondaryCta
+      );
 
-    assert.equal(
-      result.website.plan.pages.length,
-      1,
-      "Generated plan should contain one page"
-    );
+      assert.deepEqual(
+        result.website.content.sections,
+        content.sections
+      );
 
-    assert.equal(
-      result.website.plan.pages[0].name,
-      "Home",
-      "Generated page name should be Home"
-    );
+      assert.deepEqual(
+        result.website.content.testimonials,
+        content.testimonials
+      );
 
-    assert.equal(
-      result.website.plan.pages[0].slug,
-      "/",
-      "Home page should use the root slug"
-    );
+      assert.deepEqual(
+        result.website.content.faq,
+        content.faq
+      );
 
-    assert.equal(
-      result.website.plan.pages[0].pageType,
-      "landing",
-      "Home page should be a landing page"
-    );
+      assert.deepEqual(
+        result.website.content.seo,
+        content.seo
+      );
 
-    /* =====================================================
-       Content Assertions
-    ===================================================== */
+      /* ---------------------------------------------------
+         7. Validate generated design
+      --------------------------------------------------- */
 
-    assert.equal(
-      result.website.content.heroTitle,
-      content.heroTitle,
-      "Hero title should match generated content"
-    );
+      assert.equal(
+        result.website.design.layout,
+        design.layout
+      );
 
-    assert.equal(
-      result.website.content.heroSubtitle,
-      content.heroSubtitle,
-      "Hero subtitle should match generated content"
-    );
+      assert.deepEqual(
+        result.website.design.componentHierarchy,
+        design.componentHierarchy
+      );
 
-    assert.equal(
-      result.website.content.primaryCta,
-      content.primaryCta,
-      "Primary CTA should match generated content"
-    );
+      assert.deepEqual(
+        result.website.design.tokens,
+        design.tokens
+      );
 
-    assert.equal(
-      result.website.content.secondaryCta,
-      content.secondaryCta,
-      "Secondary CTA should match generated content"
-    );
+      assert.deepEqual(
+        result.website.design.responsiveRules,
+        design.responsiveRules
+      );
 
-    assert.equal(
-      result.website.content.sections.length,
-      1,
-      "Generated content should contain one section"
-    );
+      /* ---------------------------------------------------
+         8. Validate generated HTML and files
+      --------------------------------------------------- */
 
-    assert.equal(
-      result.website.content.sections[0].title,
-      "Built for momentum",
-      "Generated section title should match"
-    );
-
-    assert.equal(
-      result.website.content.testimonials.length,
-      1,
-      "Generated content should contain one testimonial"
-    );
-
-    assert.equal(
-      result.website.content.testimonials[0].name,
-      "Ava Chen",
-      "Generated testimonial should contain the expected name"
-    );
-
-    assert.equal(
-      result.website.content.faq.length,
-      1,
-      "Generated content should contain one FAQ item"
-    );
-
-    assert.equal(
-      result.website.content.faq[0].question,
-      "Do you support revisions?",
-      "Generated FAQ question should match"
-    );
-
-    assert.equal(
-      result.website.content.seo.title,
-      content.seo.title,
-      "SEO title should match generated content"
-    );
-
-    /* =====================================================
-       Design Assertions
-    ===================================================== */
-
-    assert.equal(
-      result.website.design.layout,
-      design.layout,
-      "Design layout should match generated design"
-    );
-
-    assert.deepEqual(
-      result.website.design.componentHierarchy,
-      design.componentHierarchy,
-      "Component hierarchy should match generated design"
-    );
-
-    assert.deepEqual(
-      result.website.design.responsiveRules,
-      design.responsiveRules,
-      "Responsive rules should match generated design"
-    );
-
-    assert.equal(
-      result.website.design.tokens.radius,
-      design.tokens.radius,
-      "Design radius token should match"
-    );
-
-    assert.equal(
-      result.website.design.tokens.spacing,
-      design.tokens.spacing,
-      "Design spacing token should match"
-    );
-
-    assert.equal(
-      result.website.design.tokens.shadow,
-      design.tokens.shadow,
-      "Design shadow token should match"
-    );
-
-    /* =====================================================
-       Generated Code Assertions
-    ===================================================== */
-
-    assert.ok(
-      typeof result.website.html === "string",
-      "Generated HTML should be a string"
-    );
-
-    assert.ok(
-      result.website.html.length > 0,
-      "Generated HTML should not be empty"
-    );
-
-    assert.ok(
-      result.website.html.includes("Northstar Studio"),
-      "Generated HTML should contain the site name"
-    );
-
-    assert.ok(
-      result.website.html.includes("<main"),
-      "Generated HTML should contain a main element"
-    );
-
-    assert.ok(
-      Array.isArray(result.website.files),
-      "Generated files should be an array"
-    );
-
-    assert.equal(
-      result.website.files.length,
-      code.files.length,
-      "Generated file count should match the provider response"
-    );
-
-    assert.ok(
-      result.website.files.some(
-        (file) => file.path === "src/index.tsx"
-      ),
-      "Generated files should contain src/index.tsx"
-    );
-
-    assert.ok(
-      result.website.files.some(
-        (file) => file.path === "README.md"
-      ),
-      "Generated files should contain README.md"
-    );
-
-    assert.ok(
-      result.website.files.some(
-        (file) => file.path === "package.json"
-      ),
-      "Generated files should contain package.json"
-    );
-
-    for (const file of result.website.files) {
-      assert.ok(
-        file.path,
-        "Every generated file should have a path"
+      assert.equal(
+        result.website.html,
+        code.html,
+        "Generated HTML should match the code provider response"
       );
 
       assert.ok(
-        typeof file.content === "string",
-        `Generated file ${file.path} should contain string content`
+        result.website.html.includes("Northstar Studio")
       );
-    }
 
-    assert.ok(
-      Array.isArray(result.website.assets),
-      "Generated assets should be an array"
-    );
+      assert.ok(
+        result.website.html.includes("<main")
+      );
 
-    /* =====================================================
-       Stored Project Assertions
-    ===================================================== */
+      assert.deepEqual(
+        result.website.files,
+        code.files,
+        "Generated files should match the code provider response"
+      );
 
-    assert.ok(
-      stored,
-      "Generated project should be stored"
-    );
+      assert.deepEqual(
+        result.website.assets,
+        code.assets
+      );
 
-    assert.equal(
-      stored.status,
-      "ready",
-      "Project status should be ready after successful generation"
-    );
+      const filesByPath = new Map(
+        result.website.files.map((file) => [
+          file.path,
+          file,
+        ])
+      );
 
-    assert.equal(
-      stored.websites.length,
-      1,
-      "Project should contain exactly one generated website"
-    );
+      for (const expectedFile of code.files) {
+        const actualFile = filesByPath.get(expectedFile.path);
 
-    const storedWebsite = stored.websites[0];
+        assert.ok(
+          actualFile,
+          `Missing generated file: ${expectedFile.path}`
+        );
 
-    assert.ok(
-      storedWebsite,
-      "Stored website should exist"
-    );
-
-    assert.equal(
-      storedWebsite.title,
-      plan.siteName,
-      "Stored website title should match the plan"
-    );
-
-    assert.equal(
-      storedWebsite.description,
-      plan.siteDescription,
-      "Stored website description should match the plan"
-    );
-
-    assert.equal(
-      storedWebsite.theme,
-      plan.theme,
-      "Stored website theme should match the plan"
-    );
-
-    assert.equal(
-      storedWebsite.fontFamily,
-      plan.fontFamily,
-      "Stored website font family should match the plan"
-    );
-
-    assert.ok(
-      storedWebsite.generatedCode,
-      "Stored website should contain generated code"
-    );
-
-    assert.equal(
-      storedWebsite.generatedCode.plan.siteName,
-      plan.siteName,
-      "Stored generated plan should contain the correct site name"
-    );
-
-    assert.equal(
-      storedWebsite.generatedCode.content.heroTitle,
-      content.heroTitle,
-      "Stored generated content should contain the correct hero title"
-    );
-
-    assert.ok(
-      storedWebsite.generatedCode.html.includes(
-        "Northstar Studio"
-      ),
-      "Stored generated HTML should contain the site name"
-    );
-
-    assert.equal(
-      storedWebsite.generatedCode.qa.passed,
-      true,
-      "Stored generated website should retain QA status"
-    );
-
-    /* =====================================================
-       Final Consistency Checks
-    ===================================================== */
-
-    assert.equal(
-      storedWebsite.generatedCode.html,
-      result.website.html,
-      "Stored HTML should match the returned HTML"
-    );
-
-    assert.deepEqual(
-      storedWebsite.generatedCode.plan,
-      result.website.plan,
-      "Stored plan should match the returned plan"
-    );
-
-    assert.deepEqual(
-      storedWebsite.generatedCode.content,
-      result.website.content,
-      "Stored content should match the returned content"
-    );
-
-    assert.deepEqual(
-      storedWebsite.generatedCode.design,
-      result.website.design,
-      "Stored design should match the returned design"
-    );
-
-    assert.deepEqual(
-      storedWebsite.generatedCode.qa,
-      result.website.qa,
-      "Stored QA result should match the returned QA result"
-    );
-  } finally {
-    /*
-     * Always restore the original environment and fetch
-     * implementation, even if an assertion fails.
-     */
-
-    globalThis.fetch = originalFetch;
-
-    for (const key of Object.keys(process.env)) {
-      if (!(key in originalEnv)) {
-        delete process.env[key];
+        assert.equal(
+          actualFile.content,
+          expectedFile.content,
+          `Incorrect content in ${expectedFile.path}`
+        );
       }
-    }
 
-    for (const [key, value] of Object.entries(originalEnv)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
+      /* ---------------------------------------------------
+         9. Validate stored project status
+      --------------------------------------------------- */
 
-    await rm(tempDir, {
-      recursive: true,
-      force: true,
-    });
+      assert.equal(
+        stored.status,
+        "ready",
+        "Project should be ready after successful generation"
+      );
+
+      assert.equal(
+        stored.websites.length,
+        1,
+        "Project should contain one generated website"
+      );
+
+      const storedWebsite = stored.websites[0];
+
+      assert.ok(
+        storedWebsite,
+        "Stored website should exist"
+      );
+
+      assert.equal(storedWebsite.title, plan.siteName);
+      assert.equal(
+        storedWebsite.description,
+        plan.siteDescription
+      );
+      assert.equal(storedWebsite.theme, plan.theme);
+      assert.equal(storedWebsite.fontFamily, plan.fontFamily);
+
+      /* ---------------------------------------------------
+         10. Validate persisted generated code
+      --------------------------------------------------- */
+
+      const generatedCode = storedWebsite.generatedCode;
+
+      assert.ok(
+        generatedCode,
+        "Stored website should contain generated code"
+      );
+
+      assert.deepEqual(generatedCode.plan, result.website.plan);
+      assert.deepEqual(
+        generatedCode.content,
+        result.website.content
+      );
+      assert.deepEqual(
+        generatedCode.design,
+        result.website.design
+      );
+      assert.deepEqual(generatedCode.qa, result.website.qa);
+
+      assert.equal(
+        generatedCode.html,
+        result.website.html,
+        "Persisted HTML should match the returned HTML"
+      );
+
+      assert.deepEqual(
+        generatedCode.files,
+        result.website.files,
+        "Persisted files should match the returned files"
+      );
+
+      assert.deepEqual(
+        generatedCode.assets,
+        result.website.assets
+      );
+    } finally {
+      /* ---------------------------------------------------
+         Always restore global state and remove test data
+      --------------------------------------------------- */
+
+      globalThis.fetch = originalFetch;
+
+      restoreEnvironment(originalEnv);
+
+      await rm(tempDir, {
+        recursive: true,
+        force: true,
+      });
+    }
   }
-});
+);
