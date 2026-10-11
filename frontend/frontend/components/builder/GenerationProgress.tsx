@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ComponentType } from "react";
 import {
   AlertTriangle,
   Check,
@@ -27,8 +28,6 @@ import {
   Terminal,
   Zap,
 } from "lucide-react";
-
-import type { ComponentType } from "react";
 import type {
   GeneratedWebsite,
   GenerationStep,
@@ -227,7 +226,6 @@ function getOutput(
           features: website.plan.features,
         };
       }
-
       return step?.output ?? null;
 
     case "ui-designer":
@@ -238,7 +236,6 @@ function getOutput(
           fontFamily: website.plan.fontFamily,
         };
       }
-
       return step?.output ?? null;
 
     case "code":
@@ -248,7 +245,6 @@ function getOutput(
           files: website.files.map((file) => file.path),
         };
       }
-
       return step?.output ?? null;
 
     case "qa":
@@ -274,7 +270,7 @@ function StatusBadge({ status }: { status: AgentStatus }) {
       {status === "completed" ? (
         <Check className="h-2.5 w-2.5" strokeWidth={3} />
       ) : status === "running" ? (
-        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+        <Loader2 className="h-2.5 w-2.5 animate-spin motion-reduce:animate-none" />
       ) : (
         <Clock3 className="h-2.5 w-2.5" />
       )}
@@ -307,7 +303,6 @@ function SectionHeading({
         <p className="text-[9px] font-black uppercase tracking-[0.1em] text-ink/60">
           {title}
         </p>
-
         <p className="mt-0.5 truncate text-[8px] text-ink/40">
           {description}
         </p>
@@ -374,8 +369,7 @@ export function GenerationProgress({
     (item) => item.status === "running"
   );
 
-  const hasStarted =
-    generations.length > 0 || Boolean(website);
+  const hasStarted = generations.length > 0 || Boolean(website);
 
   const isComplete =
     !working &&
@@ -387,7 +381,6 @@ export function GenerationProgress({
   const qaIssues = qa?.issues ?? [];
 
   const rawQaScore = qa?.score;
-
   const qaScore =
     typeof rawQaScore === "number" &&
     Number.isFinite(rawQaScore)
@@ -433,7 +426,6 @@ export function GenerationProgress({
           setCopiedId((current) =>
             current === agentKey ? null : current
           );
-
           copyTimerRef.current = null;
         }, 1600);
       } catch {
@@ -444,7 +436,6 @@ export function GenerationProgress({
           setCopyErrorId((current) =>
             current === agentKey ? null : current
           );
-
           copyTimerRef.current = null;
         }, 2200);
       }
@@ -464,10 +455,9 @@ export function GenerationProgress({
               {working && (
                 <span
                   aria-hidden="true"
-                  className="absolute inset-0 animate-ping rounded-xl bg-teal/10"
+                  className="absolute inset-0 animate-ping rounded-xl bg-teal/10 motion-reduce:animate-none"
                 />
               )}
-
               <Sparkles className="relative h-5 w-5 text-teal" />
             </div>
 
@@ -509,12 +499,10 @@ export function GenerationProgress({
               <span className="text-base font-black leading-none text-ink">
                 {completedCount}
               </span>
-
               <span className="mb-px text-[10px] font-semibold text-ink/30">
                 / {PIPELINE_AGENTS.length}
               </span>
             </div>
-
             <p className="mt-1 text-[7px] font-bold uppercase tracking-wider text-ink/35">
               Stages
             </p>
@@ -552,9 +540,8 @@ export function GenerationProgress({
               className="h-full rounded-full bg-gradient-to-r from-teal to-teal/70 transition-[width] duration-700 ease-out"
               style={{ width: `${progressPercentage}%` }}
             />
-
             {working && (
-              <div className="absolute inset-y-0 left-0 w-20 animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+              <div className="absolute inset-y-0 left-0 w-20 animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent motion-reduce:animate-none" />
             )}
           </div>
 
@@ -580,14 +567,13 @@ export function GenerationProgress({
         {working && currentAgent && (
           <div className="mt-4 flex items-center gap-3 rounded-xl border border-teal/15 bg-teal/[0.035] px-3 py-2.5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-teal" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-teal motion-reduce:animate-none" />
             </div>
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-[9px] font-black text-teal">
                 {getAgentMeta(currentAgent.agentKey).label}
               </p>
-
               <p className="mt-0.5 truncate text-[8px] text-ink/40">
                 {getAgentMeta(currentAgent.agentKey).detail}
               </p>
@@ -605,8 +591,7 @@ export function GenerationProgress({
             const Icon = meta.icon;
             const isExpanded = expandedId === agentKey;
             const output = getOutput(agentKey, website, stepGen);
-            const hasOutput =
-              output !== null && output !== undefined;
+            const hasOutput = output !== null && output !== undefined;
             const duration = formatDuration(stepGen?.duration);
             const outputId = `agent-output-${agentKey}`;
 
@@ -638,7 +623,7 @@ export function GenerationProgress({
                     }`}
                   >
                     {status === "running" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
                     ) : status === "completed" ? (
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     ) : (
@@ -725,7 +710,6 @@ export function GenerationProgress({
                           <p className="truncate text-[8px] font-black uppercase tracking-wider text-white/70">
                             Agent Output
                           </p>
-
                           <p className="truncate font-mono text-[7px] text-white/30">
                             {agentKey}
                           </p>
@@ -735,9 +719,7 @@ export function GenerationProgress({
                       {hasOutput && (
                         <button
                           type="button"
-                          onClick={() =>
-                            void copyOutput(agentKey, output)
-                          }
+                          onClick={() => void copyOutput(agentKey, output)}
                           className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[8px] font-bold text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
                           aria-label={`Copy ${meta.label} output`}
                         >
@@ -779,7 +761,7 @@ export function GenerationProgress({
                         <div className="flex min-h-24 items-center justify-center px-4">
                           <div className="text-center">
                             {status === "running" ? (
-                              <Loader2 className="mx-auto h-4 w-4 animate-spin text-teal/60" />
+                              <Loader2 className="mx-auto h-4 w-4 animate-spin text-teal/60 motion-reduce:animate-none" />
                             ) : (
                               <Clock3 className="mx-auto h-4 w-4 text-white/20" />
                             )}
@@ -906,7 +888,6 @@ export function GenerationProgress({
                 >
                   {qaScore}
                 </span>
-
                 <span className="ml-0.5 text-[8px] font-bold text-ink/35">
                   /100
                 </span>
@@ -985,7 +966,6 @@ export function GenerationProgress({
                         <span className="mr-1.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-[7px] font-black uppercase text-amber-700">
                           {issue.severity}
                         </span>
-
                         {issue.message}
                       </p>
                     </div>
