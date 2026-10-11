@@ -127,7 +127,9 @@ function getLanguage(path: string): string {
   const fileName = getFileName(path);
   const dotIndex = fileName.lastIndexOf(".");
   const extension =
-    dotIndex > 0 ? fileName.slice(dotIndex + 1).toLowerCase() : "";
+    dotIndex > 0
+      ? fileName.slice(dotIndex + 1).toLowerCase()
+      : "";
 
   const languages: Record<string, string> = {
     ts: "TypeScript",
@@ -155,7 +157,10 @@ function getLanguage(path: string): string {
 }
 
 function formatDuration(duration: unknown): string | null {
-  if (typeof duration === "number" && Number.isFinite(duration)) {
+  if (
+    typeof duration === "number" &&
+    Number.isFinite(duration)
+  ) {
     return duration >= 1000
       ? `${(duration / 1000).toFixed(1)}s`
       : `${Math.round(duration)}ms`;
@@ -189,7 +194,8 @@ function getStatus(
   const previousAgents = PIPELINE_AGENTS.slice(0, index);
 
   const previousStagesCompleted = previousAgents.every(
-    (agent) => generationsByAgent.get(agent)?.status === "completed"
+    (agent) =>
+      generationsByAgent.get(agent)?.status === "completed"
   );
 
   return previousStagesCompleted ? "running" : "pending";
@@ -221,6 +227,7 @@ function getOutput(
           features: website.plan.features,
         };
       }
+
       return step?.output ?? null;
 
     case "ui-designer":
@@ -231,6 +238,7 @@ function getOutput(
           fontFamily: website.plan.fontFamily,
         };
       }
+
       return step?.output ?? null;
 
     case "code":
@@ -240,6 +248,7 @@ function getOutput(
           files: website.files.map((file) => file.path),
         };
       }
+
       return step?.output ?? null;
 
     case "qa":
@@ -298,6 +307,7 @@ function SectionHeading({
         <p className="text-[9px] font-black uppercase tracking-[0.1em] text-ink/60">
           {title}
         </p>
+
         <p className="mt-0.5 truncate text-[8px] text-ink/40">
           {description}
         </p>
@@ -311,13 +321,16 @@ export function GenerationProgress({
   website,
   working,
 }: GenerationProgressProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
-
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  const [expandedId, setExpandedId] = useState<string | null>(
     null
   );
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyErrorId, setCopyErrorId] = useState<string | null>(
+    null
+  );
+
+  const copyTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const generationsByAgent = useMemo(() => {
     const map = new Map<string, GenerationStep>();
@@ -361,7 +374,8 @@ export function GenerationProgress({
     (item) => item.status === "running"
   );
 
-  const hasStarted = generations.length > 0 || Boolean(website);
+  const hasStarted =
+    generations.length > 0 || Boolean(website);
 
   const isComplete =
     !working &&
@@ -370,8 +384,15 @@ export function GenerationProgress({
 
   const websiteFiles = website?.files ?? [];
   const qa = website?.qa;
-  const qaScore = Math.min(100, Math.max(0, qa?.score ?? 0));
   const qaIssues = qa?.issues ?? [];
+
+  const rawQaScore = qa?.score;
+
+  const qaScore =
+    typeof rawQaScore === "number" &&
+    Number.isFinite(rawQaScore)
+      ? Math.min(100, Math.max(0, rawQaScore))
+      : 0;
 
   const clearCopyTimer = useCallback(() => {
     if (copyTimerRef.current !== null) {
@@ -385,7 +406,9 @@ export function GenerationProgress({
   }, [clearCopyTimer]);
 
   const toggleExpand = useCallback((id: string) => {
-    setExpandedId((previous) => (previous === id ? null : id));
+    setExpandedId((previous) =>
+      previous === id ? null : id
+    );
   }, []);
 
   const copyOutput = useCallback(
@@ -399,7 +422,9 @@ export function GenerationProgress({
           throw new Error("Clipboard API unavailable");
         }
 
-        await navigator.clipboard.writeText(safeSerialize(output));
+        await navigator.clipboard.writeText(
+          safeSerialize(output)
+        );
 
         setCopiedId(agentKey);
         setCopyErrorId(null);
@@ -408,6 +433,7 @@ export function GenerationProgress({
           setCopiedId((current) =>
             current === agentKey ? null : current
           );
+
           copyTimerRef.current = null;
         }, 1600);
       } catch {
@@ -418,6 +444,7 @@ export function GenerationProgress({
           setCopyErrorId((current) =>
             current === agentKey ? null : current
           );
+
           copyTimerRef.current = null;
         }, 2200);
       }
@@ -430,7 +457,6 @@ export function GenerationProgress({
       className="overflow-hidden rounded-2xl border border-line bg-paper shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
       aria-label="AI generation progress"
     >
-      {/* Header */}
       <div className="border-b border-line bg-paper px-4 py-4 sm:px-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -441,6 +467,7 @@ export function GenerationProgress({
                   className="absolute inset-0 animate-ping rounded-xl bg-teal/10"
                 />
               )}
+
               <Sparkles className="relative h-5 w-5 text-teal" />
             </div>
 
@@ -482,17 +509,18 @@ export function GenerationProgress({
               <span className="text-base font-black leading-none text-ink">
                 {completedCount}
               </span>
+
               <span className="mb-px text-[10px] font-semibold text-ink/30">
                 / {PIPELINE_AGENTS.length}
               </span>
             </div>
+
             <p className="mt-1 text-[7px] font-bold uppercase tracking-wider text-ink/35">
               Stages
             </p>
           </div>
         </div>
 
-        {/* Overall progress */}
         <div className="mt-5">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
@@ -530,7 +558,10 @@ export function GenerationProgress({
             )}
           </div>
 
-          <div className="mt-2.5 flex items-center gap-1" aria-hidden="true">
+          <div
+            className="mt-2.5 flex items-center gap-1"
+            aria-hidden="true"
+          >
             {pipeline.map((item) => (
               <div
                 key={item.agentKey}
@@ -546,7 +577,6 @@ export function GenerationProgress({
           </div>
         </div>
 
-        {/* Active agent */}
         {working && currentAgent && (
           <div className="mt-4 flex items-center gap-3 rounded-xl border border-teal/15 bg-teal/[0.035] px-3 py-2.5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10">
@@ -557,6 +587,7 @@ export function GenerationProgress({
               <p className="truncate text-[9px] font-black text-teal">
                 {getAgentMeta(currentAgent.agentKey).label}
               </p>
+
               <p className="mt-0.5 truncate text-[8px] text-ink/40">
                 {getAgentMeta(currentAgent.agentKey).detail}
               </p>
@@ -567,7 +598,6 @@ export function GenerationProgress({
         )}
       </div>
 
-      {/* Agent pipeline */}
       <div className="px-3 py-3 sm:px-4 sm:py-4">
         <div className="space-y-2">
           {pipeline.map(({ agentKey, index, stepGen, status }) => {
@@ -575,7 +605,8 @@ export function GenerationProgress({
             const Icon = meta.icon;
             const isExpanded = expandedId === agentKey;
             const output = getOutput(agentKey, website, stepGen);
-            const hasOutput = output !== null && output !== undefined;
+            const hasOutput =
+              output !== null && output !== undefined;
             const duration = formatDuration(stepGen?.duration);
             const outputId = `agent-output-${agentKey}`;
 
@@ -679,7 +710,6 @@ export function GenerationProgress({
                   </div>
                 </button>
 
-                {/* Agent output */}
                 {isExpanded && (
                   <div
                     id={outputId}
@@ -695,6 +725,7 @@ export function GenerationProgress({
                           <p className="truncate text-[8px] font-black uppercase tracking-wider text-white/70">
                             Agent Output
                           </p>
+
                           <p className="truncate font-mono text-[7px] text-white/30">
                             {agentKey}
                           </p>
@@ -704,7 +735,9 @@ export function GenerationProgress({
                       {hasOutput && (
                         <button
                           type="button"
-                          onClick={() => void copyOutput(agentKey, output)}
+                          onClick={() =>
+                            void copyOutput(agentKey, output)
+                          }
                           className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[8px] font-bold text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
                           aria-label={`Copy ${meta.label} output`}
                         >
@@ -768,7 +801,6 @@ export function GenerationProgress({
         </div>
       </div>
 
-      {/* Generated project files */}
       {websiteFiles.length > 0 && (
         <div className="border-t border-line px-4 py-3">
           <SectionHeading
@@ -785,9 +817,11 @@ export function GenerationProgress({
                 title={file.path}
               >
                 <FileText className="h-2.5 w-2.5 shrink-0 text-ink/35" />
+
                 <span className="max-w-[150px] truncate font-mono text-[8px] text-ink/55">
                   {getFileName(file.path)}
                 </span>
+
                 <span className="hidden text-[7px] text-ink/30 sm:inline">
                   {getLanguage(file.path)}
                 </span>
@@ -805,6 +839,7 @@ export function GenerationProgress({
             <span className="text-[8px] text-ink/40">
               Project structure
             </span>
+
             <span className="inline-flex items-center gap-1.5 text-[8px] font-semibold text-ink/45">
               <Layers3 className="h-3 w-3" />
               {websiteFiles.length} files
@@ -813,7 +848,6 @@ export function GenerationProgress({
         </div>
       )}
 
-      {/* QA summary */}
       {qa && (
         <div className="border-t border-line px-4 py-3 sm:px-5">
           <div
@@ -832,7 +866,9 @@ export function GenerationProgress({
                 >
                   <ShieldCheck
                     className={`h-4 w-4 ${
-                      qa.passed ? "text-emerald-600" : "text-amber-600"
+                      qa.passed
+                        ? "text-emerald-600"
+                        : "text-amber-600"
                     }`}
                   />
                 </div>
@@ -841,7 +877,9 @@ export function GenerationProgress({
                   <div className="flex items-center gap-2">
                     <p
                       className={`text-[10px] font-black uppercase tracking-wider ${
-                        qa.passed ? "text-emerald-800" : "text-amber-800"
+                        qa.passed
+                          ? "text-emerald-800"
+                          : "text-amber-800"
                       }`}
                     >
                       QA Verification
@@ -861,11 +899,14 @@ export function GenerationProgress({
               <div className="shrink-0 text-right">
                 <span
                   className={`text-xl font-black leading-none ${
-                    qa.passed ? "text-emerald-700" : "text-amber-700"
+                    qa.passed
+                      ? "text-emerald-700"
+                      : "text-amber-700"
                   }`}
                 >
                   {qaScore}
                 </span>
+
                 <span className="ml-0.5 text-[8px] font-bold text-ink/35">
                   /100
                 </span>
@@ -883,7 +924,9 @@ export function GenerationProgress({
               >
                 <div
                   className={`h-full rounded-full transition-[width] duration-700 ${
-                    qa.passed ? "bg-emerald-500" : "bg-amber-500"
+                    qa.passed
+                      ? "bg-emerald-500"
+                      : "bg-amber-500"
                   }`}
                   style={{ width: `${qaScore}%` }}
                 />
@@ -905,7 +948,9 @@ export function GenerationProgress({
 
               <span
                 className={`text-[8px] font-bold ${
-                  qa.passed ? "text-emerald-700" : "text-amber-700"
+                  qa.passed
+                    ? "text-emerald-700"
+                    : "text-amber-700"
                 }`}
               >
                 {qa.passed
@@ -918,9 +963,11 @@ export function GenerationProgress({
               <div className="border-t border-black/[0.05] px-3.5 py-3">
                 <div className="mb-2 flex items-center gap-2">
                   <AlertTriangle className="h-3 w-3 text-amber-600" />
+
                   <p className="text-[8px] font-black uppercase tracking-wider text-ink/45">
                     Issues detected
                   </p>
+
                   <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[7px] font-bold text-amber-700">
                     {qaIssues.length}
                   </span>
@@ -938,6 +985,7 @@ export function GenerationProgress({
                         <span className="mr-1.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-[7px] font-black uppercase text-amber-700">
                           {issue.severity}
                         </span>
+
                         {issue.message}
                       </p>
                     </div>
@@ -949,7 +997,6 @@ export function GenerationProgress({
         </div>
       )}
 
-      {/* Waiting state */}
       {!hasStarted && (
         <div className="border-t border-line px-4 py-8">
           <div className="mx-auto max-w-xs text-center">
@@ -969,12 +1016,14 @@ export function GenerationProgress({
         </div>
       )}
 
-      {/* Completion state */}
       {isComplete && (
         <div className="border-t border-emerald-200/60 bg-emerald-50/50 px-4 py-3">
           <div className="flex items-center justify-center gap-2">
             <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100">
-              <Check className="h-3 w-3 text-emerald-600" strokeWidth={3} />
+              <Check
+                className="h-3 w-3 text-emerald-600"
+                strokeWidth={3}
+              />
             </div>
 
             <span className="text-center text-[8px] font-black uppercase tracking-wider text-emerald-700">
