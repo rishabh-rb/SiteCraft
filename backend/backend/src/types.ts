@@ -1,3 +1,4 @@
+
 import type {
   GeneratedSitePayload,
   QAResult,
@@ -492,12 +493,14 @@ export interface ApiSuccessResponse<T> {
   requestId?: string;
 }
 
+export interface ApiErrorDetail {
+  code: string;
+  message: string;
+}
+
 export interface ApiErrorResponse {
   success: false;
-
-  error: string;
-  code?: string;
-  details?: JsonValue;
+  error: ApiErrorDetail;
   requestId?: string;
 }
 
