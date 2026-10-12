@@ -13,6 +13,8 @@ test("runs the AI-backed generation pipeline end to end", async () => {
   const originalEnv = { ...process.env };
   const originalFetch = globalThis.fetch;
 
+  let callIndex = 0;
+
   const plan = {
     siteName: "Northstar Studio",
     siteDescription: "A clear, high-trust studio website.",
@@ -57,8 +59,7 @@ test("runs the AI-backed generation pipeline end to end", async () => {
     faq: [
       {
         question: "Do you support revisions?",
-        answer:
-          "Yes. The generated project can be revised in place.",
+        answer: "Yes. The generated project can be revised in place.",
       },
     ],
     seo: {
@@ -124,8 +125,6 @@ test("runs the AI-backed generation pipeline end to end", async () => {
     qa,
   ];
 
-  let callIndex = 0;
-
   try {
     // Configure an isolated test environment.
     process.env.SITECRAFT_DATA_DIR = tempDir;
@@ -141,22 +140,25 @@ test("runs the AI-backed generation pipeline end to end", async () => {
     process.env.NVIDIA_MODEL =
       "qwen/qwen3-coder-480b-a35b-instruct";
 
-    // Mock the AI provider's HTTP response.
+    // Mock the AI provider with deterministic responses.
     globalThis.fetch = (async () => {
-      const responseBody = {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify(
-                responses[callIndex++]
-              ),
-            },
-          },
-        ],
-      };
+      assert.ok(
+        callIndex < responses.length,
+        `Unexpected extra AI request at index ${callIndex}`
+      );
+
+      const response = responses[callIndex++];
 
       return new Response(
-        JSON.stringify(responseBody),
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(response),
+              },
+            },
+          ],
+        }),
         {
           status: 200,
           headers: {
@@ -166,7 +168,7 @@ test("runs the AI-backed generation pipeline end to end", async () => {
       );
     }) as typeof fetch;
 
-    // Import after configuring the test environment.
+    // Import after configuring the environment.
     const { createProject, getProject } =
       await import("./store.js");
 
@@ -187,41 +189,53 @@ test("runs the AI-backed generation pipeline end to end", async () => {
 
     const stored = await getProject(project.id);
 
-    // Verify the generated website and QA.
+    // Verify generation and quality checks.
     assert.equal(result.qa.passed, true);
+    assert.equal(result.qa.score, 98);
+    assert.deepEqual(result.qa.issues, []);
 
+    // Verify the generated plan.
     assert.equal(
       result.website.plan.siteName,
       plan.siteName
     );
 
     assert.equal(
+      result.website.plan.pages.length,
+      1
+    );
+
+    // Verify generated content.
+    assert.equal(
       result.website.content.heroTitle,
       content.heroTitle
     );
 
+    // Verify generated HTML.
     assert.ok(
       result.website.html.includes("Northstar Studio")
     );
 
-    // Verify the selected AI provider.
+    // Verify provider selection.
     assert.equal(result.provider, "nvidia");
 
-    // Verify the project was saved successfully.
-    assert.equal(stored?.status, "ready");
+    // Verify project persistence.
+    assert.ok(stored);
+    assert.equal(stored.status, "ready");
 
     assert.ok(
-      stored?.websites[0]?.generatedCode.html.includes(
+      stored.websites[0]?.generatedCode.html.includes(
         "Northstar Studio"
       )
     );
 
-    // Confirm all five mocked AI responses were consumed.
+    // Verify every expected AI response was consumed.
     assert.equal(callIndex, responses.length);
   } finally {
-    // Restore the original environment and network function.
+    // Restore fetch even if an assertion or generation fails.
     globalThis.fetch = originalFetch;
 
+    // Restore the original environment.
     for (const key of Object.keys(process.env)) {
       if (!(key in originalEnv)) {
         delete process.env[key];
@@ -230,6 +244,7 @@ test("runs the AI-backed generation pipeline end to end", async () => {
 
     Object.assign(process.env, originalEnv);
 
+    // Remove temporary test data.
     await rm(tempDir, {
       recursive: true,
       force: true,
