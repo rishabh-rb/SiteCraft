@@ -1,15 +1,22 @@
+
 import dotenv from "dotenv";
 import path from "node:path";
 import {
   mkdir,
   readFile,
   writeFile,
+  rename,
+  rm,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
+dotenv.config({
+  path: path.resolve(process.cwd(), ".env"),
+});
+dotenv.config({
+  path: path.resolve(process.cwd(), "../.env"),
+});
 
 // ==================================================
 // TYPES
@@ -57,6 +64,12 @@ type WebsiteInput = {
   version?: number;
 };
 
+type ProjectPatch = Partial<
+  Pick<ProjectInput, "name" | "description">
+> & {
+  status?: string;
+};
+
 // ==================================================
 // CONFIGURATION
 // ==================================================
@@ -71,19 +84,17 @@ const dataFile = path.join(dataDir, "sitecraft.json");
 let prisma: PrismaClient | null = null;
 
 if (process.env.DATABASE_URL) {
-  try {
-    prisma = new PrismaClient();
-  } catch (error) {
-    console.warn(
-      "Prisma initialization failed:",
-      error instanceof Error ? error.message : "Unknown error"
-    );
-  }
+  prisma = new PrismaClient();
 }
 
 let dbAvailable = true;
 let lastDbCheck = 0;
+
 const DB_RETRY_INTERVAL = 30_000;
+
+// ==================================================
+// DATABASE HELPERS
+// ==================================================
 
 function isDbOnline(): boolean {
   if (!prisma || !process.env.DATABASE_URL) {
@@ -105,104 +116,10 @@ function markDbFailed(error: unknown): void {
   dbAvailable = false;
   lastDbCheck = Date.now();
 
-  console.warn(
+  console.error(
     "Database operation failed:",
-    error instanceof Error ? error.message : "Unknown error"
+    error instanceof Error ? error.message : String(error)
   );
-}
-
-// ==================================================
-// LOCAL JSON STORAGE
-// ==================================================
-
-function emptyStore(): StoreData {
-  return {
-    projects: [],
-    deployments: [],
-    apiUsage: [],
-  };
-}
-
-async function load(): Promise<StoreData> {
-  try {
-    const raw = await readFile(dataFile, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !("projects" in parsed) ||
-      !Array.isArray(parsed.projects)
-    ) {
-      throw new Error("Invalid SiteCraft store structure.");
-    }
-
-    const data = parsed as Partial<StoreData>;
-
-    return {
-      projects: data.projects!,
-      deployments: Array.isArray(data.deployments)
-        ? data.deployments
-        : [],
-      apiUsage: Array.isArray(data.apiUsage)
-        ? data.apiUsage
-        : [],
-    };
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return emptyStore();
-    }
-
-    throw error;
-  }
-}
-
-async function save(data: StoreData): Promise<void> {
-  await mkdir(dataDir, { recursive: true });
-
-  const tempFile = `${dataFile}.${randomUUID()}.tmp`;
-
-  try {
-    await writeFile(
-      tempFile,
-      JSON.stringify(data, null, 2),
-      "utf8"
-    );
-
-    await import("node:fs/promises").then(({ rename }) =>
-      rename(tempFile, dataFile)
-    );
-  } catch (error) {
-    const { rm } = await import("node:fs/promises");
-
-    await rm(tempFile, { force: true }).catch(() => undefined);
-
-    throw error;
-  }
-}
-
-// ==================================================
-// COMMON HELPERS
-// ==================================================
-
-function getEmailForUser(userId: string): string {
-  const normalized = userId.trim().toLowerCase();
-
-  if (
-    normalized.includes("@") &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
-  ) {
-    return normalized;
-  }
-
-  const safeId =
-    normalized.replace(/[^a-z0-9._-]/g, "-") || "demo-user";
-
-  return `${safeId}@sitecraft.local`;
 }
 
 function projectStatusToDb(status: string): string {
@@ -235,6 +152,156 @@ function generationStatusFromDb(status: string): string {
   }
 }
 
+// ==================================================
+// LOCAL JSON STORAGE
+// ==================================================
+
+function emptyStore(): StoreData {
+  return {
+    projects: [],
+    deployments: [],
+    apiUsage: [],
+  };
+}
+
+function isRecord(value: unknown): value is StoreRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+async function load(): Promise<StoreData> {
+  let raw: string;
+
+  try {
+    raw = await readFile(dataFile, "utf8");
+  } catch (error) {
+    if (
+      isRecord(error) &&
+      error.code === "ENOENT"
+    ) {
+      return emptyStore();
+    }
+
+    throw error;
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `The SiteCraft data file contains invalid JSON: ${dataFile}`
+    );
+  }
+
+  if (
+    !isRecord(parsed) ||
+    !Array.isArray(parsed.projects)
+  ) {
+    throw new Error(
+      "Invalid SiteCraft store structure. Expected a projects array."
+    );
+  }
+
+  return {
+    projects: parsed.projects,
+    deployments: Array.isArray(parsed.deployments)
+      ? parsed.deployments
+      : [],
+    apiUsage: Array.isArray(parsed.apiUsage)
+      ? parsed.apiUsage
+      : [],
+  };
+}
+
+async function save(data: StoreData): Promise<void> {
+  await mkdir(dataDir, { recursive: true });
+
+  const tempFile = `${dataFile}.${randomUUID()}.tmp`;
+
+  try {
+    await writeFile(
+      tempFile,
+      JSON.stringify(data, null, 2),
+      {
+        encoding: "utf8",
+        flag: "wx",
+      }
+    );
+
+    await rename(tempFile, dataFile);
+  } catch (error) {
+    await rm(tempFile, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+// Serialize local mutations so concurrent operations do not
+// overwrite one another after loading the same old JSON data.
+let storeQueue: Promise<void> = Promise.resolve();
+
+async function mutateStore<T>(
+  operation: (data: StoreData) => Promise<T> | T
+): Promise<T> {
+  const previous = storeQueue;
+
+  let release!: () => void;
+
+  storeQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  try {
+    const data = await load();
+    const result = await operation(data);
+
+    await save(data);
+
+    return result;
+  } finally {
+    release();
+  }
+}
+
+// ==================================================
+// COMMON HELPERS
+// ==================================================
+
+function getEmailForUser(userId: string): string {
+  const normalized = userId.trim().toLowerCase();
+
+  if (
+    normalized.includes("@") &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  ) {
+    return normalized;
+  }
+
+  const safeId =
+    normalized.replace(/[^a-z0-9._-]/g, "-") ||
+    "demo-user";
+
+  return `${safeId}@sitecraft.local`;
+}
+
+function toISOString(value: unknown): string {
+  const date = value instanceof Date
+    ? value
+    : new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Invalid date found in stored record.");
+  }
+
+  return date.toISOString();
+}
+
 function mapWebsite(record: StoreRecord): StoreRecord {
   const generatedCode = record.generatedCode;
 
@@ -242,15 +309,15 @@ function mapWebsite(record: StoreRecord): StoreRecord {
     id: record.id,
     projectId: record.projectId,
     title: record.title,
-    description: record.description || "",
+    description: record.description ?? "",
     theme: record.theme,
     colorPalette: record.colorPalette,
     fontFamily: record.fontFamily,
     structure: record.structure,
     generatedCode,
     version: record.version,
-    createdAt: new Date(record.createdAt).toISOString(),
-    updatedAt: new Date(record.updatedAt).toISOString(),
+    createdAt: toISOString(record.createdAt),
+    updatedAt: toISOString(record.updatedAt),
     qa: generatedCode?.qa,
   };
 }
@@ -260,12 +327,12 @@ function mapProject(project: StoreRecord): StoreRecord {
     id: project.id,
     userId: project.userId,
     name: project.name,
-    description: project.description || "",
+    description: project.description ?? "",
     initialPrompt: project.initialPrompt,
     status: projectStatusFromDb(project.status),
     framework: project.framework,
-    createdAt: new Date(project.createdAt).toISOString(),
-    updatedAt: new Date(project.updatedAt).toISOString(),
+    createdAt: toISOString(project.createdAt),
+    updatedAt: toISOString(project.updatedAt),
 
     websites: (project.Website ?? []).map(mapWebsite),
 
@@ -278,7 +345,7 @@ function mapProject(project: StoreRecord): StoreRecord {
         input: generation.input,
         output: generation.output,
         error: generation.error || undefined,
-        createdAt: new Date(generation.createdAt).toISOString(),
+        createdAt: toISOString(generation.createdAt),
       })
     ),
 
@@ -287,7 +354,7 @@ function mapProject(project: StoreRecord): StoreRecord {
         id: message.id,
         role: message.role,
         content: message.content,
-        createdAt: new Date(message.createdAt).toISOString(),
+        createdAt: toISOString(message.createdAt),
       })
     ),
 
@@ -296,11 +363,13 @@ function mapProject(project: StoreRecord): StoreRecord {
         id: deployment.id,
         projectId: deployment.projectId,
         provider: deployment.provider,
-        deploymentUrl: deployment.deploymentUrl || undefined,
-        deploymentId: deployment.deploymentId || undefined,
+        deploymentUrl:
+          deployment.deploymentUrl || undefined,
+        deploymentId:
+          deployment.deploymentId || undefined,
         status: deployment.status,
-        createdAt: new Date(deployment.createdAt).toISOString(),
-        updatedAt: new Date(deployment.updatedAt).toISOString(),
+        createdAt: toISOString(deployment.createdAt),
+        updatedAt: toISOString(deployment.updatedAt),
       })
     ),
   };
@@ -342,10 +411,18 @@ async function ensureUser(userId: string): Promise<string> {
 // ==================================================
 
 const projectIncludes = {
-  Website: { orderBy: { version: "desc" as const } },
-  Generation: { orderBy: { createdAt: "desc" as const } },
-  ChatMessage: { orderBy: { createdAt: "asc" as const } },
-  Deployment: { orderBy: { createdAt: "desc" as const } },
+  Website: {
+    orderBy: { version: "desc" as const },
+  },
+  Generation: {
+    orderBy: { createdAt: "desc" as const },
+  },
+  ChatMessage: {
+    orderBy: { createdAt: "asc" as const },
+  },
+  Deployment: {
+    orderBy: { createdAt: "desc" as const },
+  },
 };
 
 export async function listProjects(
@@ -399,11 +476,9 @@ export async function getProject(
         include: projectIncludes,
       });
 
-      if (project) {
-        return mapProject(project as unknown as StoreRecord);
-      }
-
-      return undefined;
+      return project
+        ? mapProject(project as unknown as StoreRecord)
+        : undefined;
     } catch (error) {
       markDbFailed(error);
     }
@@ -414,9 +489,11 @@ export async function getProject(
   return data.projects.find(
     (project) =>
       project.id === id &&
-      (!userId && !userRole
-        ? true
-        : userRole === "admin" || project.userId === userId)
+      (
+        (!userId && !userRole) ||
+        userRole === "admin" ||
+        project.userId === userId
+      )
   );
 }
 
@@ -452,7 +529,7 @@ export async function createProject(
         id: project.id,
         userId: project.userId,
         name: project.name,
-        description: project.description || "",
+        description: project.description ?? "",
         initialPrompt: project.initialPrompt,
         status: projectStatusFromDb(project.status),
         framework: project.framework,
@@ -467,8 +544,6 @@ export async function createProject(
       markDbFailed(error);
     }
   }
-
-  const data = await load();
 
   const project: StoreRecord = {
     id: randomUUID(),
@@ -486,8 +561,9 @@ export async function createProject(
     deployments: [],
   };
 
-  data.projects.push(project);
-  await save(data);
+  await mutateStore((data) => {
+    data.projects.push(project);
+  });
 
   return project;
 }
@@ -496,7 +572,9 @@ export async function createProject(
 // DELETE PROJECT
 // ==================================================
 
-export async function deleteProject(id: string): Promise<boolean> {
+export async function deleteProject(
+  id: string
+): Promise<boolean> {
   if (isDbOnline() && prisma) {
     try {
       const deleted = await prisma.project.deleteMany({
@@ -509,20 +587,24 @@ export async function deleteProject(id: string): Promise<boolean> {
     }
   }
 
-  const data = await load();
-  const previousCount = data.projects.length;
+  return mutateStore((data) => {
+    const previousCount = data.projects.length;
 
-  data.projects = data.projects.filter(
-    (project) => project.id !== id
-  );
+    data.projects = data.projects.filter(
+      (project) => project.id !== id
+    );
 
-  const deleted = data.projects.length < previousCount;
+    const deleted =
+      data.projects.length < previousCount;
 
-  if (deleted) {
-    await save(data);
-  }
+    if (deleted) {
+      data.deployments = data.deployments.filter(
+        (deployment) => deployment.projectId !== id
+      );
+    }
 
-  return deleted;
+    return deleted;
+  });
 }
 
 // ==================================================
@@ -531,9 +613,7 @@ export async function deleteProject(id: string): Promise<boolean> {
 
 export async function updateProject(
   id: string,
-  patch: Partial<Pick<ProjectInput, "name" | "description">> & {
-    status?: string;
-  }
+  patch: ProjectPatch
 ): Promise<StoreRecord | undefined> {
   if (isDbOnline() && prisma) {
     try {
@@ -559,19 +639,21 @@ export async function updateProject(
     }
   }
 
-  const data = await load();
-  const project = data.projects.find((item) => item.id === id);
+  return mutateStore((data) => {
+    const project = data.projects.find(
+      (item) => item.id === id
+    );
 
-  if (!project) {
-    return undefined;
-  }
+    if (!project) {
+      return undefined;
+    }
 
-  Object.assign(project, patch, {
-    updatedAt: new Date().toISOString(),
+    Object.assign(project, patch, {
+      updatedAt: new Date().toISOString(),
+    });
+
+    return project;
   });
-
-  await save(data);
-  return project;
 }
 
 // ==================================================
@@ -629,26 +711,30 @@ export async function addGeneration(
     }
   }
 
-  const data = await load();
-  const project = data.projects.find((item) => item.id === id);
+  return mutateStore((data) => {
+    const project = data.projects.find(
+      (item) => item.id === id
+    );
 
-  if (!project) {
-    return undefined;
-  }
+    if (!project) {
+      return undefined;
+    }
 
-  project.generations ??= [];
+    project.generations ??= [];
 
-  const record = {
-    ...generation,
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-  };
+    const now = new Date().toISOString();
 
-  project.generations.push(record);
-  project.updatedAt = new Date().toISOString();
+    const record = {
+      ...generation,
+      id: randomUUID(),
+      createdAt: now,
+    };
 
-  await save(data);
-  return record;
+    project.generations.push(record);
+    project.updatedAt = now;
+
+    return record;
+  });
 }
 
 // ==================================================
@@ -690,27 +776,31 @@ export async function addMessage(
     }
   }
 
-  const data = await load();
-  const project = data.projects.find((item) => item.id === id);
+  return mutateStore((data) => {
+    const project = data.projects.find(
+      (item) => item.id === id
+    );
 
-  if (!project) {
-    return undefined;
-  }
+    if (!project) {
+      return undefined;
+    }
 
-  project.messages ??= [];
+    project.messages ??= [];
 
-  const message = {
-    id: randomUUID(),
-    role,
-    content,
-    createdAt: new Date().toISOString(),
-  };
+    const now = new Date().toISOString();
 
-  project.messages.push(message);
-  project.updatedAt = new Date().toISOString();
+    const message = {
+      id: randomUUID(),
+      role,
+      content,
+      createdAt: now,
+    };
 
-  await save(data);
-  return message;
+    project.messages.push(message);
+    project.updatedAt = now;
+
+    return message;
+  });
 }
 
 // ==================================================
@@ -737,7 +827,7 @@ export async function saveWebsite(
       }
 
       const now = new Date();
-      const existing = project.Website[0];
+      const latestWebsite = project.Website[0];
 
       const record = await prisma.website.create({
         data: {
@@ -750,7 +840,9 @@ export async function saveWebsite(
           fontFamily: website.fontFamily ?? null,
           structure: (website.structure ?? null) as any,
           generatedCode: (website.generatedCode ?? null) as any,
-          version: website.version ?? (existing?.version ?? 0) + 1,
+          version:
+            website.version ??
+            (latestWebsite?.version ?? 0) + 1,
           createdAt: now,
           updatedAt: now,
         },
@@ -764,39 +856,54 @@ export async function saveWebsite(
         },
       });
 
-      return mapWebsite(record as unknown as StoreRecord);
+      return mapWebsite(
+        record as unknown as StoreRecord
+      );
     } catch (error) {
       markDbFailed(error);
     }
   }
 
-  const data = await load();
-  const project = data.projects.find((item) => item.id === id);
+  return mutateStore((data) => {
+    const project = data.projects.find(
+      (item) => item.id === id
+    );
 
-  if (!project) {
-    return undefined;
-  }
+    if (!project) {
+      return undefined;
+    }
 
-  project.websites ??= [];
+    project.websites ??= [];
 
-  const existing = project.websites[0];
-  const now = new Date().toISOString();
+    const latestWebsite = [...project.websites].sort(
+      (a, b) => (b.version ?? 0) - (a.version ?? 0)
+    )[0];
 
-  const record = {
-    ...website,
-    id: existing?.id || randomUUID(),
-    projectId: id,
-    version: website.version ?? (existing?.version ?? 0) + 1,
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-  };
+    const now = new Date().toISOString();
 
-  project.websites = [record];
-  project.status = "ready";
-  project.updatedAt = now;
+    // Preserve previous versions instead of replacing them.
+    const record = {
+      ...website,
+      id: randomUUID(),
+      projectId: id,
+      version:
+        website.version ??
+        (latestWebsite?.version ?? 0) + 1,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-  await save(data);
-  return record;
+    project.websites.push(record);
+
+    project.websites.sort(
+      (a, b) => (b.version ?? 0) - (a.version ?? 0)
+    );
+
+    project.status = "ready";
+    project.updatedAt = now;
+
+    return record;
+  });
 }
 
 // ==================================================
@@ -828,8 +935,10 @@ export async function recordDeployment(
         id: record.id,
         projectId: record.projectId,
         provider: record.provider,
-        deploymentUrl: record.deploymentUrl || undefined,
-        deploymentId: record.deploymentId || undefined,
+        deploymentUrl:
+          record.deploymentUrl || undefined,
+        deploymentId:
+          record.deploymentId || undefined,
         status: record.status,
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
@@ -839,30 +948,30 @@ export async function recordDeployment(
     }
   }
 
-  const data = await load();
+  return mutateStore((data) => {
+    const project = data.projects.find(
+      (item) => item.id === projectId
+    );
 
-  const record = {
-    id: randomUUID(),
-    projectId,
-    provider: deployment.provider,
-    deploymentUrl: deployment.deploymentUrl,
-    deploymentId: deployment.deploymentId,
-    status: deployment.status,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
+    const record = {
+      id: randomUUID(),
+      projectId,
+      provider: deployment.provider,
+      deploymentUrl: deployment.deploymentUrl,
+      deploymentId: deployment.deploymentId,
+      status: deployment.status,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
 
-  data.deployments.push(record);
+    data.deployments.push(record);
 
-  const project = data.projects.find(
-    (item) => item.id === projectId
-  );
+    if (project) {
+      project.deployments ??= [];
+      project.deployments.unshift(record);
+      project.updatedAt = now.toISOString();
+    }
 
-  if (project) {
-    project.deployments ??= [];
-    project.deployments.unshift(record);
-  }
-
-  await save(data);
-  return record;
+    return record;
+  });
 }
