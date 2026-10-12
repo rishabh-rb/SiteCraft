@@ -17,8 +17,19 @@ const TEST_FILES = [
   },
 ];
 
+const VERCEL_API_URL = "https://api.vercel.com/v13/deployments";
+
 // ==================================================
-// HELPER FUNCTIONS
+// TYPES
+// ==================================================
+
+type MockFetchHandler = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Response | Promise<Response>;
+
+// ==================================================
+// MOCK HELPERS
 // ==================================================
 
 function mockResponse(
@@ -44,11 +55,6 @@ function successfulResponse(
   });
 }
 
-type MockFetchHandler = (
-  input: RequestInfo | URL,
-  init?: RequestInit
-) => Promise<Response>;
-
 function createMockFetch(
   handler: MockFetchHandler
 ): typeof fetch {
@@ -57,27 +63,45 @@ function createMockFetch(
   }) as typeof fetch;
 }
 
-async function withMockFetch(
+async function withMockFetch<T>(
   mock: typeof fetch,
-  callback: () => Promise<void>
-): Promise<void> {
+  callback: () => Promise<T>
+): Promise<T> {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = mock;
 
   try {
-    await callback();
+    return await callback();
   } finally {
-    // Always restore fetch, including when assertions fail.
     globalThis.fetch = originalFetch;
   }
 }
 
+async function deployWithMock(
+  handler: MockFetchHandler,
+  projectName = "Test Project",
+  files = TEST_FILES,
+  token = TEST_TOKEN,
+  teamId?: string
+) {
+  return withMockFetch(
+    createMockFetch(handler),
+    () =>
+      deployToVercel(
+        projectName,
+        files,
+        token,
+        teamId
+      )
+  );
+}
+
 // ==================================================
-// 1. CONFIGURATION TESTS
+// 1. CONFIGURATION
 // ==================================================
 
-test("returns an error when Vercel token is missing", async () => {
+test("returns an error when the Vercel token is missing", async () => {
   const result = await deployToVercel(
     "Test Project",
     TEST_FILES,
@@ -98,26 +122,33 @@ test("returns an error when Vercel token is missing", async () => {
 // ==================================================
 
 test("deploys a project successfully", async () => {
-  await withMockFetch(
-    createMockFetch(async () => successfulResponse()),
-    async () => {
-      const result = await deployToVercel(
-        "Test Project",
-        TEST_FILES,
-        TEST_TOKEN
-      );
+  const result = await deployWithMock(() =>
+    successfulResponse()
+  );
 
-      assert.equal(result.success, true);
-      assert.equal(result.status, "READY");
-      assert.equal(result.deploymentId, "dpl_12345");
+  assert.equal(result.success, true);
+  assert.equal(result.status, "READY");
+  assert.equal(result.deploymentId, "dpl_12345");
+  assert.equal(
+    result.deploymentUrl,
+    "https://test-project.vercel.app"
+  );
+  assert.equal(result.provider, "vercel");
+});
 
-      assert.equal(
-        result.deploymentUrl,
-        "https://test-project.vercel.app"
-      );
+test("uses the deployment ID and URL returned by Vercel", async () => {
+  const result = await deployWithMock(() =>
+    successfulResponse(
+      "dpl_custom_456",
+      "custom-project.vercel.app"
+    )
+  );
 
-      assert.equal(result.provider, "vercel");
-    }
+  assert.equal(result.success, true);
+  assert.equal(result.deploymentId, "dpl_custom_456");
+  assert.equal(
+    result.deploymentUrl,
+    "https://custom-project.vercel.app"
   );
 });
 
@@ -125,57 +156,45 @@ test("deploys a project successfully", async () => {
 // 3. REQUEST METHOD AND URL
 // ==================================================
 
-test("sends a POST request to the Vercel API", async () => {
+test("sends a POST request to the Vercel deployments API", async () => {
   let requestUrl = "";
   let requestMethod = "";
 
-  await withMockFetch(
-    createMockFetch(async (input, init) => {
+  const result = await deployWithMock(
+    (input, init) => {
       requestUrl = String(input);
       requestMethod = init?.method ?? "";
 
       return successfulResponse();
-    }),
-    async () => {
-      await deployToVercel(
-        "Test Project",
-        TEST_FILES,
-        TEST_TOKEN
-      );
-
-      assert.equal(requestMethod, "POST");
-      assert.match(requestUrl, /api\.vercel\.com/i);
-      assert.match(requestUrl, /deployments/i);
     }
   );
+
+  assert.equal(result.success, true);
+  assert.equal(requestMethod, "POST");
+  assert.equal(requestUrl, VERCEL_API_URL);
 });
 
 // ==================================================
 // 4. AUTHORIZATION
 // ==================================================
 
-test("sends the correct authorization header", async () => {
+test("sends the correct Bearer authorization header", async () => {
   let authorization = "";
 
-  await withMockFetch(
-    createMockFetch(async (_input, init) => {
-      authorization =
-        new Headers(init?.headers).get("Authorization") ?? "";
+  const result = await deployWithMock(
+    (_input, init) => {
+      authorization = new Headers(
+        init?.headers
+      ).get("Authorization") ?? "";
 
       return successfulResponse();
-    }),
-    async () => {
-      await deployToVercel(
-        "Auth Test",
-        TEST_FILES,
-        TEST_TOKEN
-      );
-
-      assert.equal(
-        authorization,
-        `Bearer ${TEST_TOKEN}`
-      );
     }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(
+    authorization,
+    `Bearer ${TEST_TOKEN}`
   );
 });
 
@@ -183,11 +202,11 @@ test("sends the correct authorization header", async () => {
 // 5. REQUEST BODY
 // ==================================================
 
-test("sends the correct project name and files", async () => {
+test("sends the project name and files in the request body", async () => {
   let requestBody: Record<string, unknown> | undefined;
 
-  await withMockFetch(
-    createMockFetch(async (_input, init) => {
+  const result = await deployWithMock(
+    (_input, init) => {
       assert.equal(init?.method, "POST");
       assert.equal(typeof init?.body, "string");
 
@@ -196,28 +215,40 @@ test("sends the correct project name and files", async () => {
       ) as Record<string, unknown>;
 
       return successfulResponse();
-    }),
-    async () => {
-      await deployToVercel(
-        "Files Test",
-        TEST_FILES,
-        TEST_TOKEN
-      );
+    },
+    "Files Test"
+  );
 
-      assert.ok(requestBody);
-      assert.equal(requestBody.name, "files-test");
-      assert.ok(Array.isArray(requestBody.files));
+  assert.equal(result.success, true);
+  assert.ok(requestBody);
+  assert.equal(requestBody.name, "files-test");
+  assert.ok(Array.isArray(requestBody.files));
 
-      const files = requestBody.files as Array<{
-        file: string;
-        data: string;
-      }>;
+  const files = requestBody.files as Array<{
+    file: string;
+    data: string;
+  }>;
 
-      assert.equal(files.length, 1);
-      assert.equal(files[0].file, "index.html");
-      assert.equal(files[0].data, "<h1>Hello</h1>");
+  assert.equal(files.length, 1);
+  assert.equal(files[0].file, "index.html");
+  assert.equal(files[0].data, "<h1>Hello</h1>");
+});
+
+test("sends JSON content type", async () => {
+  let contentType = "";
+
+  const result = await deployWithMock(
+    (_input, init) => {
+      contentType = new Headers(
+        init?.headers
+      ).get("Content-Type") ?? "";
+
+      return successfulResponse();
     }
   );
+
+  assert.equal(result.success, true);
+  assert.match(contentType, /application\/json/i);
 });
 
 // ==================================================
@@ -227,30 +258,48 @@ test("sends the correct project name and files", async () => {
 test("includes teamId when provided", async () => {
   let requestUrl = "";
 
-  await withMockFetch(
-    createMockFetch(async (input) => {
+  const result = await deployWithMock(
+    (input) => {
       requestUrl = String(input);
 
       return successfulResponse(
         "dpl_team",
         "team-test.vercel.app"
       );
-    }),
-    async () => {
-      await deployToVercel(
-        "Team Test",
-        TEST_FILES,
-        TEST_TOKEN,
-        "team_123"
-      );
+    },
+    "Team Test",
+    TEST_FILES,
+    TEST_TOKEN,
+    "team_123"
+  );
 
-      const url = new URL(requestUrl);
+  assert.equal(result.success, true);
 
-      assert.equal(
-        url.searchParams.get("teamId"),
-        "team_123"
-      );
+  const url = new URL(requestUrl);
+
+  assert.equal(
+    url.searchParams.get("teamId"),
+    "team_123"
+  );
+});
+
+test("does not include teamId when it is omitted", async () => {
+  let requestUrl = "";
+
+  const result = await deployWithMock(
+    (input) => {
+      requestUrl = String(input);
+      return successfulResponse();
     }
+  );
+
+  assert.equal(result.success, true);
+
+  const url = new URL(requestUrl);
+
+  assert.equal(
+    url.searchParams.has("teamId"),
+    false
   );
 });
 
@@ -259,38 +308,29 @@ test("includes teamId when provided", async () => {
 // ==================================================
 
 test("handles Vercel server errors", async () => {
-  await withMockFetch(
-    createMockFetch(async () =>
-      mockResponse(
-        {
-          error: {
-            message: "Vercel deployment failed",
-          },
+  const result = await deployWithMock(() =>
+    mockResponse(
+      {
+        error: {
+          message: "Vercel deployment failed",
         },
-        500
-      )
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Failed Project",
-        TEST_FILES,
-        TEST_TOKEN
-      );
+      },
+      500
+    )
+  );
 
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
 
-      assert.match(
-        result.error ?? "",
-        /Vercel deployment failed/i
-      );
-    }
+  assert.match(
+    result.error ?? "",
+    /Vercel deployment failed/i
   );
 });
 
 test("handles unauthorized API responses", async () => {
-  await withMockFetch(
-    createMockFetch(async () =>
+  const result = await deployWithMock(
+    () =>
       mockResponse(
         {
           error: {
@@ -298,50 +338,36 @@ test("handles unauthorized API responses", async () => {
           },
         },
         401
-      )
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Unauthorized Project",
-        TEST_FILES,
-        "invalid-token"
-      );
+      ),
+    "Unauthorized Project",
+    TEST_FILES,
+    "invalid-token"
+  );
 
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
 
-      assert.match(
-        result.error ?? "",
-        /Invalid token/i
-      );
-    }
+  assert.match(
+    result.error ?? "",
+    /Invalid token/i
   );
 });
 
 test("handles rate-limit responses", async () => {
-  await withMockFetch(
-    createMockFetch(async () =>
-      mockResponse(
-        {
-          error: {
-            message: "Rate limit exceeded",
-          },
+  const result = await deployWithMock(() =>
+    mockResponse(
+      {
+        error: {
+          message: "Rate limit exceeded",
         },
-        429
-      )
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Rate Limit Test",
-        TEST_FILES,
-        TEST_TOKEN
-      );
-
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
-      assert.ok(result.error);
-    }
+      },
+      429
+    )
   );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
 });
 
 // ==================================================
@@ -376,53 +402,83 @@ test("rejects an empty deployment file list", async () => {
   assert.ok(result.error);
 });
 
+test("does not call the API when the project name is invalid", async () => {
+  let requestCount = 0;
+
+  const result = await deployWithMock(
+    () => {
+      requestCount++;
+      return successfulResponse();
+    },
+    ""
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(requestCount, 0);
+});
+
+test("does not call the API when there are no files", async () => {
+  let requestCount = 0;
+
+  const result = await deployWithMock(
+    () => {
+      requestCount++;
+      return successfulResponse();
+    },
+    "Empty Project",
+    []
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(requestCount, 0);
+});
+
 // ==================================================
 // 9. MALFORMED API RESPONSES
 // ==================================================
 
 test("handles malformed JSON from Vercel", async () => {
-  await withMockFetch(
-    createMockFetch(async () =>
+  const result = await deployWithMock(
+    () =>
       new Response("invalid-json", {
         status: 200,
         headers: {
           "Content-Type": "application/json",
         },
       })
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Malformed Project",
-        TEST_FILES,
-        TEST_TOKEN
-      );
-
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
-      assert.ok(result.error);
-    }
   );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
 });
 
 test("handles a response without a deployment ID", async () => {
-  await withMockFetch(
-    createMockFetch(async () =>
-      mockResponse({
-        url: "missing-id.vercel.app",
-        readyState: "READY",
-      })
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Missing ID Project",
-        TEST_FILES,
-        TEST_TOKEN
-      );
-
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
-    }
+  const result = await deployWithMock(() =>
+    mockResponse({
+      url: "missing-id.vercel.app",
+      readyState: "READY",
+    })
   );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+});
+
+test("handles an empty API response body", async () => {
+  const result = await deployWithMock(
+    () =>
+      new Response("", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
 });
 
 // ==================================================
@@ -430,22 +486,23 @@ test("handles a response without a deployment ID", async () => {
 // ==================================================
 
 test("handles network failures gracefully", async () => {
-  await withMockFetch(
-    createMockFetch(async () => {
-      throw new Error("Network connection failed");
-    }),
-    async () => {
-      const result = await deployToVercel(
-        "Network Test",
-        TEST_FILES,
-        TEST_TOKEN
-      );
+  const result = await deployWithMock(() => {
+    throw new Error("Network connection failed");
+  });
 
-      assert.equal(result.success, false);
-      assert.equal(result.status, "ERROR");
-      assert.ok(result.error);
-    }
-  );
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
+});
+
+test("handles non-Error network exceptions", async () => {
+  const result = await deployWithMock(() => {
+    throw "Network unavailable";
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
 });
 
 // ==================================================
@@ -455,8 +512,8 @@ test("handles network failures gracefully", async () => {
 test("does not expose the Vercel token in error messages", async () => {
   const secretToken = "super-secret-vercel-token";
 
-  await withMockFetch(
-    createMockFetch(async () =>
+  const result = await deployWithMock(
+    () =>
       mockResponse(
         {
           error: {
@@ -464,22 +521,17 @@ test("does not expose the Vercel token in error messages", async () => {
           },
         },
         401
-      )
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Security Test",
-        TEST_FILES,
-        secretToken
-      );
+      ),
+    "Security Test",
+    TEST_FILES,
+    secretToken
+  );
 
-      assert.equal(result.success, false);
+  assert.equal(result.success, false);
 
-      assert.doesNotMatch(
-        result.error ?? "",
-        /super-secret-vercel-token/i
-      );
-    }
+  assert.doesNotMatch(
+    result.error ?? "",
+    /super-secret-vercel-token/i
   );
 });
 
@@ -490,8 +542,8 @@ test("does not expose the Vercel token in error messages", async () => {
 test("restores global fetch after a deployment error", async () => {
   const originalFetch = globalThis.fetch;
 
-  await withMockFetch(
-    createMockFetch(async () =>
+  const result = await deployWithMock(
+    () =>
       mockResponse(
         {
           error: {
@@ -500,16 +552,25 @@ test("restores global fetch after a deployment error", async () => {
         },
         500
       )
-    ),
-    async () => {
-      const result = await deployToVercel(
-        "Cleanup Test",
-        TEST_FILES,
-        TEST_TOKEN
-      );
+  );
 
-      assert.equal(result.success, false);
-    }
+  assert.equal(result.success, false);
+  assert.equal(globalThis.fetch, originalFetch);
+});
+
+test("restores global fetch even when the mock throws", async () => {
+  const originalFetch = globalThis.fetch;
+
+  await assert.rejects(
+    withMockFetch(
+      createMockFetch(() => {
+        throw new Error("Mock failure");
+      }),
+      async () => {
+        await fetch("https://example.com");
+      }
+    ),
+    /Mock failure/
   );
 
   assert.equal(globalThis.fetch, originalFetch);
