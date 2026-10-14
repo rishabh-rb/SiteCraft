@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -20,6 +21,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
+  Tablet,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -58,7 +60,6 @@ interface PreviewFrameProps {
   refreshKey: string | number;
   onLoad: () => void;
   onError: () => void;
-  fullscreen?: boolean;
 }
 
 const PREVIEW_TIMEOUT = 15000;
@@ -104,6 +105,7 @@ export function PreviewPanel({
 
   const refreshStartedRef = useRef(0);
   const generationRef = useRef(0);
+  const isMountedRef = useRef(true);
 
   const blobUrlsRef = useRef<Set<string>>(new Set());
 
@@ -115,10 +117,9 @@ export function PreviewPanel({
     typeof website?.html === "string" &&
     website.html.trim().length > 0;
 
-  const siteName =
-    website?.plan?.siteName || "Website Preview";
-
   const html = website?.html ?? "";
+  const siteName = website?.plan?.siteName?.trim() ||
+    "Website Preview";
 
   const clearRefreshTimer = useCallback(() => {
     if (refreshTimerRef.current !== null) {
@@ -148,28 +149,18 @@ export function PreviewPanel({
     blobUrlsRef.current.clear();
   }, []);
 
-  useEffect(() => {
-    return () => {
-      generationRef.current += 1;
-      clearRefreshTimer();
-      clearPreviewTimeout();
-      clearBlobUrls();
-    };
-  }, [
-    clearRefreshTimer,
-    clearPreviewTimeout,
-    clearBlobUrls,
-  ]);
-
   const beginLoading = useCallback(() => {
     clearPreviewTimeout();
 
-    const currentGeneration = ++generationRef.current;
+    const generation = ++generationRef.current;
 
     setPreviewState("loading");
 
     timeoutRef.current = setTimeout(() => {
-      if (generationRef.current !== currentGeneration) {
+      if (
+        !isMountedRef.current ||
+        generationRef.current !== generation
+      ) {
         return;
       }
 
@@ -181,6 +172,23 @@ export function PreviewPanel({
       timeoutRef.current = null;
     }, PREVIEW_TIMEOUT);
   }, [clearPreviewTimeout]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      generationRef.current += 1;
+
+      clearRefreshTimer();
+      clearPreviewTimeout();
+      clearBlobUrls();
+    };
+  }, [
+    clearRefreshTimer,
+    clearPreviewTimeout,
+    clearBlobUrls,
+  ]);
 
   useEffect(() => {
     if (!hasWebsite) {
@@ -210,11 +218,7 @@ export function PreviewPanel({
     clearRefreshTimer,
   ]);
 
-  const handlePreviewLoad = useCallback(() => {
-    clearPreviewTimeout();
-
-    setPreviewState("ready");
-
+  const finishRefreshing = useCallback(() => {
     const elapsed = Date.now() - refreshStartedRef.current;
 
     const remaining = Math.max(
@@ -225,10 +229,19 @@ export function PreviewPanel({
     clearRefreshTimer();
 
     refreshTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+
       setRefreshing(false);
       refreshTimerRef.current = null;
     }, remaining);
-  }, [clearPreviewTimeout, clearRefreshTimer]);
+  }, [clearRefreshTimer]);
+
+  const handlePreviewLoad = useCallback(() => {
+    clearPreviewTimeout();
+
+    setPreviewState("ready");
+    finishRefreshing();
+  }, [clearPreviewTimeout, finishRefreshing]);
 
   const handlePreviewError = useCallback(() => {
     clearPreviewTimeout();
@@ -247,9 +260,12 @@ export function PreviewPanel({
 
     setRefreshing(true);
     beginLoading();
+
     setRefreshKey((current) => current + 1);
 
     refreshTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+
       setRefreshing(false);
       refreshTimerRef.current = null;
     }, PREVIEW_TIMEOUT + REFRESH_MIN_DURATION);
@@ -273,7 +289,6 @@ export function PreviewPanel({
     if (!fullscreen) return;
 
     const previousOverflow = document.body.style.overflow;
-
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -297,23 +312,22 @@ export function PreviewPanel({
     let blobUrl: string | null = null;
 
     try {
-      previewWindow = window.open("", "_blank");
+      previewWindow = window.open("about:blank", "_blank");
 
       if (!previewWindow) return;
+
+      try {
+        previewWindow.opener = null;
+      } catch {
+        // Continue if the browser restricts this assignment.
+      }
 
       const blob = new Blob([html], {
         type: "text/html;charset=utf-8",
       });
 
       blobUrl = URL.createObjectURL(blob);
-
       blobUrlsRef.current.add(blobUrl);
-
-      try {
-        previewWindow.opener = null;
-      } catch {
-        // Some browser configurations restrict this assignment.
-      }
 
       previewWindow.location.replace(blobUrl);
 
@@ -351,6 +365,7 @@ export function PreviewPanel({
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#d8d1c5]"
       aria-label="Website preview"
     >
+      {/* Main toolbar */}
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-white px-3 shadow-sm sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div
@@ -429,6 +444,7 @@ export function PreviewPanel({
         </div>
       </header>
 
+      {/* Responsive device selector */}
       <div className="flex shrink-0 justify-center border-b border-line bg-white px-3 py-2 md:hidden">
         <DevicePreview
           device={device}
@@ -436,6 +452,7 @@ export function PreviewPanel({
         />
       </div>
 
+      {/* Main preview canvas */}
       <main className="panel-scroll relative flex min-h-0 flex-1 justify-center overflow-auto p-3 sm:p-5 lg:p-6">
         {hasWebsite ? (
           <div
@@ -473,6 +490,7 @@ export function PreviewPanel({
         )}
       </main>
 
+      {/* Bottom status bar */}
       {hasWebsite && (
         <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
           <div className="flex min-w-0 items-center gap-3 text-ink/45">
@@ -496,6 +514,7 @@ export function PreviewPanel({
         </footer>
       )}
 
+      {/* Fullscreen preview */}
       {fullscreen && hasWebsite && (
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
@@ -590,7 +609,6 @@ export function PreviewPanel({
                 refreshKey={`fullscreen-${refreshKey}`}
                 onLoad={handlePreviewLoad}
                 onError={handlePreviewError}
-                fullscreen
               />
 
               {(working || previewState === "loading") && (
@@ -621,6 +639,10 @@ export function PreviewPanel({
   );
 }
 
+/* -------------------------------------------------------
+   Preview iframe
+------------------------------------------------------- */
+
 function PreviewFrame({
   html,
   title,
@@ -628,7 +650,6 @@ function PreviewFrame({
   refreshKey,
   onLoad,
   onError,
-  fullscreen = false,
 }: PreviewFrameProps) {
   return (
     <>
@@ -664,16 +685,16 @@ function PreviewFrame({
         loading="eager"
         onLoad={onLoad}
         onError={onError}
-        className={`min-h-0 w-full flex-1 border-none bg-white ${
-          fullscreen && device !== "mobile"
-            ? deviceHeight[device]
-            : ""
-        }`}
+        className="min-h-0 w-full flex-1 border-none bg-white"
         srcDoc={html}
       />
     </>
   );
 }
+
+/* -------------------------------------------------------
+   Toolbar actions
+------------------------------------------------------- */
 
 function PreviewAction({
   children,
@@ -711,6 +732,10 @@ function PreviewAction({
     </button>
   );
 }
+
+/* -------------------------------------------------------
+   Preview status
+------------------------------------------------------- */
 
 function PreviewStatus({
   working,
@@ -767,6 +792,10 @@ function PreviewStatus({
   );
 }
 
+/* -------------------------------------------------------
+   Loading overlay
+------------------------------------------------------- */
+
 function PreviewLoadingOverlay({
   fullscreen = false,
 }: {
@@ -799,6 +828,10 @@ function PreviewLoadingOverlay({
     </div>
   );
 }
+
+/* -------------------------------------------------------
+   Error overlay
+------------------------------------------------------- */
 
 function PreviewErrorOverlay({
   onRetry,
@@ -835,6 +868,10 @@ function PreviewErrorOverlay({
     </div>
   );
 }
+
+/* -------------------------------------------------------
+   Empty preview state
+------------------------------------------------------- */
 
 function EmptyPreview({
   working,
@@ -918,6 +955,10 @@ function EmptyPreview({
     </div>
   );
 }
+
+/* -------------------------------------------------------
+   Empty-state feature hint
+------------------------------------------------------- */
 
 function PreviewHint({
   text,
