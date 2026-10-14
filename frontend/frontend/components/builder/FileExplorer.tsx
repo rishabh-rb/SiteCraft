@@ -1,4 +1,4 @@
-```tsx
+
 "use client";
 
 import {
@@ -970,4 +970,3 @@ function ThinkingIndicator() {
     </div>
   );
 }
-```
