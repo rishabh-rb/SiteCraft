@@ -2,971 +2,769 @@
 "use client";
 
 import {
-  type ChangeEvent,
-  type FormEvent,
-  type KeyboardEvent,
+  useId,
+  useMemo,
+  useState,
   useCallback,
   useEffect,
-  useId,
-  useRef,
-  useState,
 } from "react";
 
 import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  CheckCheck,
-  CheckCircle2,
-  Clipboard,
-  LayoutTemplate,
-  Loader2,
-  MessageSquarePlus,
-  Palette,
-  RotateCcw,
-  Sparkles,
-  Type,
-  User,
-  WandSparkles,
+  Search,
   X,
-  Zap,
+  FileCode2,
+  FileText,
+  FileJson,
+  FileImage,
+  FileType,
+  File as FileIcon,
+  ChevronRight,
+  ChevronDown,
+  Folder,
+  FolderOpen,
+  Check,
+  Sparkles,
+  Files,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
-import type { ChatMessage } from "@/lib/api";
+import type { GeneratedFile } from "@/lib/api";
 
-interface ChatPanelProps {
-  messages: ChatMessage[];
-  chatText: string;
-  setChatText: (value: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  working: boolean;
-  disabled: boolean;
+interface FileExplorerProps {
+  files: GeneratedFile[];
+  selectedFile: string;
+  onSelectFile: (path: string) => void;
 }
 
-interface Suggestion {
-  label: string;
-  description: string;
-  text: string;
-  icon: typeof Palette;
+interface NormalizedFile {
+  path: string;
+  name: string;
+  folderPath: string;
+  extension: string;
+  searchText: string;
+  originalIndex: number;
 }
 
-const MAX_MESSAGE_LENGTH = 1000;
-const MIN_TEXTAREA_HEIGHT = 76;
-const MAX_TEXTAREA_HEIGHT = 190;
-const SCROLL_THRESHOLD = 100;
-const COPY_FEEDBACK_DURATION = 1800;
+interface FolderGroup {
+  path: string;
+  name: string;
+  files: NormalizedFile[];
+}
 
-const SUGGESTIONS: Suggestion[] = [
-  {
-    label: "Modern colors",
-    description: "Create a cohesive color palette",
-    text: "Improve the website's color palette with modern, harmonious, accessible colors. Maintain consistency across sections, buttons, cards, and interactive elements.",
-    icon: Palette,
-  },
-  {
-    label: "Add pricing",
-    description: "Build professional pricing cards",
-    text: "Add a responsive pricing section with polished pricing cards, clear feature comparisons, a highlighted recommended plan, subtle hover effects, and prominent call-to-action buttons.",
-    icon: LayoutTemplate,
-  },
-  {
-    label: "Better typography",
-    description: "Improve readability and hierarchy",
-    text: "Improve typography throughout the website with modern fonts, consistent font sizes, comfortable line heights, balanced spacing, and a clear visual hierarchy.",
-    icon: Type,
-  },
-  {
-    label: "Premium design",
-    description: "Give the website a refined look",
-    text: "Make the website feel more premium and professional with refined spacing, elegant cards, subtle shadows, consistent border radii, tasteful animations, and a cohesive visual design. Preserve existing functionality.",
-    icon: Sparkles,
-  },
-  {
-    label: "Mobile responsive",
-    description: "Optimize every screen size",
-    text: "Make the entire website responsive across mobile, tablet, laptop, and desktop screens. Fix overflowing elements, improve mobile navigation, and ensure buttons, cards, forms, and layouts adapt correctly.",
-    icon: LayoutTemplate,
-  },
-  {
-    label: "Improve buttons",
-    description: "Polish interactive elements",
-    text: "Improve buttons and interactive elements with consistent sizing, accessible contrast, clear hover and focus states, smooth transitions, and polished disabled states.",
-    icon: Zap,
-  },
-];
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/");
+}
 
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+function getFileName(path: string): string {
+  const normalized = normalizePath(path);
+  return normalized.split("/").pop() || normalized;
+}
+
+function getFolderPath(path: string): string {
+  const normalized = normalizePath(path);
+  const lastSlash = normalized.lastIndexOf("/");
+
+  return lastSlash > 0
+    ? normalized.slice(0, lastSlash)
+    : "";
+}
+
+function getFileExtension(path: string): string {
+  const name = getFileName(path);
+  const dotIndex = name.lastIndexOf(".");
+
+  if (dotIndex <= 0 || dotIndex === name.length - 1) {
+    return "";
   }
 
-  const textarea = document.createElement("textarea");
+  return name.slice(dotIndex + 1).toUpperCase();
+}
 
-  textarea.value = text;
-  textarea.readOnly = true;
-  textarea.setAttribute("aria-hidden", "true");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  textarea.style.pointerEvents = "none";
+function getFileIcon(path: string) {
+  const extension = getFileExtension(path).toLowerCase();
 
-  document.body.appendChild(textarea);
+  switch (extension) {
+    case "tsx":
+    case "ts":
+    case "jsx":
+    case "js":
+    case "mjs":
+    case "cjs":
+    case "vue":
+    case "svelte":
+    case "py":
+    case "java":
+    case "c":
+    case "cpp":
+    case "h":
+    case "hpp":
+    case "go":
+    case "rs":
+    case "php":
+    case "rb":
+    case "sh":
+    case "bash":
+    case "html":
+    case "htm":
+    case "xml":
+      return FileCode2;
 
-  try {
-    textarea.select();
+    case "json":
+    case "jsonc":
+    case "json5":
+      return FileJson;
 
-    if (!document.execCommand("copy")) {
-      throw new Error("Unable to copy text");
+    case "css":
+    case "scss":
+    case "sass":
+    case "less":
+      return FileType;
+
+    case "svg":
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "ico":
+    case "avif":
+    case "bmp":
+    case "tif":
+    case "tiff":
+      return FileImage;
+
+    case "md":
+    case "mdx":
+    case "txt":
+    case "log":
+    case "csv":
+    case "pdf":
+      return FileText;
+
+    default:
+      return FileIcon;
+  }
+}
+
+function getFileIconColor(path: string): string {
+  const extension = getFileExtension(path).toLowerCase();
+
+  switch (extension) {
+    case "tsx":
+    case "jsx":
+    case "ts":
+    case "js":
+      return "text-sky-500";
+
+    case "json":
+    case "jsonc":
+    case "json5":
+      return "text-amber-500";
+
+    case "css":
+    case "scss":
+    case "sass":
+    case "less":
+      return "text-violet-500";
+
+    case "html":
+    case "htm":
+    case "xml":
+      return "text-orange-500";
+
+    case "svg":
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "ico":
+    case "avif":
+      return "text-emerald-500";
+
+    case "md":
+    case "mdx":
+    case "txt":
+      return "text-blue-400";
+
+    default:
+      return "text-ink/45";
+  }
+}
+
+function getFolderCount(files: GeneratedFile[]): number {
+  const folders = new Set<string>();
+
+  for (const file of files) {
+    const normalized = normalizePath(file.path);
+    const parts = normalized.split("/").filter(Boolean);
+
+    for (let index = 1; index < parts.length; index++) {
+      folders.add(parts.slice(0, index).join("/"));
     }
-  } finally {
-    textarea.remove();
   }
+
+  return folders.size;
 }
 
-export function ChatPanel({
-  messages,
-  chatText,
-  setChatText,
-  onSubmit,
-  working,
-  disabled,
-}: ChatPanelProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  const copyTimeoutRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const scrollFrameRef = useRef<number | null>(null);
-  const shouldAutoScrollRef = useRef(true);
-  const previousMessageCountRef = useRef(messages.length);
-
-  const inputId = useId();
-  const helpId = useId();
-  const countId = useId();
-  const conversationId = useId();
-
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-
-  const canEdit = !disabled && !working;
-  const trimmedText = chatText.trim();
-
-  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
-  const characterProgress = Math.min(
-    (chatText.length / MAX_MESSAGE_LENGTH) * 100,
-    100,
+export function FileExplorer({
+  files,
+  selectedFile,
+  onSelectFile,
+}: FileExplorerProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    () => new Set(),
   );
 
-  const canSubmit =
-    canEdit &&
-    trimmedText.length > 0 &&
-    chatText.length <= MAX_MESSAGE_LENGTH;
+  const searchId = useId();
+  const trimmedQuery = searchQuery.trim();
+  const hasSearch = trimmedQuery.length > 0;
 
-  const isNearLimit = remainingCharacters <= 120;
-  const isAtLimit = remainingCharacters === 0;
+  const normalizedFiles = useMemo<NormalizedFile[]>(() => {
+    return files.map((file, originalIndex) => {
+      const normalizedPath = normalizePath(file.path);
+      const name = getFileName(normalizedPath);
+      const folderPath = getFolderPath(normalizedPath);
+      const extension = getFileExtension(normalizedPath);
 
-  const clearCopyTimer = useCallback(() => {
-    if (copyTimeoutRef.current !== null) {
-      clearTimeout(copyTimeoutRef.current);
-      copyTimeoutRef.current = null;
+      return {
+        path: file.path,
+        name,
+        folderPath,
+        extension,
+        searchText: [
+          normalizedPath,
+          name,
+          folderPath,
+          extension,
+        ]
+          .join(" ")
+          .toLowerCase(),
+        originalIndex,
+      };
+    });
+  }, [files]);
+
+  const filteredFiles = useMemo(() => {
+    if (!hasSearch) {
+      return normalizedFiles;
     }
-  }, []);
 
-  const cancelScrollFrame = useCallback(() => {
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current);
-      scrollFrameRef.current = null;
-    }
-  }, []);
+    const query = trimmedQuery.toLowerCase();
 
-  useEffect(() => {
-    return () => {
-      clearCopyTimer();
-      cancelScrollFrame();
-    };
-  }, [clearCopyTimer, cancelScrollFrame]);
+    return normalizedFiles.filter((file) =>
+      file.searchText.includes(query),
+    );
+  }, [normalizedFiles, hasSearch, trimmedQuery]);
 
-  const scrollToBottom = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      const container = messagesContainerRef.current;
+  const folderGroups = useMemo<FolderGroup[]>(() => {
+    const groups = new Map<string, NormalizedFile[]>();
 
-      if (container) {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior,
-        });
+    for (const file of filteredFiles) {
+      const folder = file.folderPath || "";
+
+      if (!groups.has(folder)) {
+        groups.set(folder, []);
       }
 
-      shouldAutoScrollRef.current = true;
-      setShowScrollButton(false);
-    },
-    [],
-  );
+      groups.get(folder)!.push(file);
+    }
 
-  const scheduleScrollToBottom = useCallback(
-    (behavior: ScrollBehavior = "smooth") => {
-      cancelScrollFrame();
+    return Array.from(groups.entries())
+      .map(([path, groupFiles]) => ({
+        path,
+        name: path ? path.split("/").pop() || path : "Root",
+        files: groupFiles,
+      }))
+      .sort((a, b) => {
+        if (a.path === "") return -1;
+        if (b.path === "") return 1;
 
-      scrollFrameRef.current = requestAnimationFrame(() => {
-        scrollFrameRef.current = null;
-        scrollToBottom(behavior);
+        return a.path.localeCompare(b.path);
       });
-    },
-    [cancelScrollFrame, scrollToBottom],
+  }, [filteredFiles]);
+
+  const folderCount = useMemo(
+    () => getFolderCount(files),
+    [files],
   );
 
-  const updateScrollState = useCallback(() => {
-    const container = messagesContainerRef.current;
+  const selectedExists = useMemo(
+    () => files.some((file) => file.path === selectedFile),
+    [files, selectedFile],
+  );
 
-    if (!container) return;
+  const allFolders = useMemo(
+    () => folderGroups.map((group) => group.path).filter(Boolean),
+    [folderGroups],
+  );
 
-    const distanceFromBottom =
-      container.scrollHeight -
-      container.scrollTop -
-      container.clientHeight;
+  const allCollapsed =
+    allFolders.length > 0 &&
+    allFolders.every((folder) => collapsedFolders.has(folder));
 
-    const nearBottom = distanceFromBottom <= SCROLL_THRESHOLD;
+  useEffect(() => {
+    if (hasSearch) {
+      setCollapsedFolders(new Set());
+    }
+  }, [hasSearch, trimmedQuery]);
 
-    shouldAutoScrollRef.current = nearBottom;
-    setShowScrollButton(!nearBottom);
+  const clearSearch = useCallback(() => {
+    setSearchQuery("");
   }, []);
 
-  // Follow new messages without forcing the user away from older messages.
-  useEffect(() => {
-    const hasNewMessages =
-      messages.length !== previousMessageCountRef.current;
+  const toggleFolder = useCallback((folderPath: string) => {
+    setCollapsedFolders((previous) => {
+      const next = new Set(previous);
 
-    previousMessageCountRef.current = messages.length;
+      if (next.has(folderPath)) {
+        next.delete(folderPath);
+      } else {
+        next.add(folderPath);
+      }
 
-    if (messages.length === 0) {
-      shouldAutoScrollRef.current = true;
-      setShowScrollButton(false);
-      return;
-    }
-
-    if (shouldAutoScrollRef.current && hasNewMessages) {
-      scheduleScrollToBottom("smooth");
-    }
-  }, [messages.length, scheduleScrollToBottom]);
-
-  // Keep the latest assistant content visible during generation.
-  useEffect(() => {
-    if (!working || !shouldAutoScrollRef.current) return;
-
-    scheduleScrollToBottom("auto");
-  }, [working, messages, scheduleScrollToBottom]);
-
-  // Reset conversation-specific UI when the conversation is cleared.
-  useEffect(() => {
-    if (messages.length !== 0) return;
-
-    clearCopyTimer();
-    setCopiedId(null);
-    setCopyErrorId(null);
-    setShowScrollButton(false);
-    shouldAutoScrollRef.current = true;
-    previousMessageCountRef.current = 0;
-  }, [messages.length, clearCopyTimer]);
-
-  // Automatically resize the input as the user types.
-  useEffect(() => {
-    const textarea = textareaRef.current;
-
-    if (!textarea) return;
-
-    textarea.style.height = "auto";
-
-    const nextHeight = Math.min(
-      Math.max(textarea.scrollHeight, MIN_TEXTAREA_HEIGHT),
-      MAX_TEXTAREA_HEIGHT,
-    );
-
-    textarea.style.height = `${nextHeight}px`;
-    textarea.style.overflowY =
-      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT
-        ? "auto"
-        : "hidden";
-  }, [chatText]);
-
-  // Focus the input when the editor first becomes available.
-  useEffect(() => {
-    if (!canEdit || messages.length > 0) return;
-
-    const frame = requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
-
-    return () => cancelAnimationFrame(frame);
-  }, [canEdit, messages.length]);
-
-  const focusInput = useCallback(() => {
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
+      return next;
     });
   }, []);
 
-  const handleChange = (
-    event: ChangeEvent<HTMLTextAreaElement>,
-  ) => {
-    const value = event.target.value;
+  const toggleAllFolders = useCallback(() => {
+    setCollapsedFolders((previous) => {
+      if (allFolders.every((folder) => previous.has(folder))) {
+        return new Set();
+      }
 
-    if (value.length <= MAX_MESSAGE_LENGTH) {
-      setChatText(value);
-    }
-  };
+      return new Set(allFolders);
+    });
+  }, [allFolders]);
 
-  const handleKeyDown = (
-    event: KeyboardEvent<HTMLTextAreaElement>,
-  ) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-
-    // Do not submit while an IME composition is in progress.
-    if (
-      event.nativeEvent.isComposing ||
-      event.nativeEvent.keyCode === 229
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-
-    if (canSubmit) {
-      event.currentTarget.form?.requestSubmit();
-    }
-  };
-
-  const handleClear = () => {
-    if (!canEdit) return;
-
-    setChatText("");
-    focusInput();
-  };
-
-  const handleSuggestion = (text: string) => {
-    if (!canEdit) return;
-
-    setChatText(text.slice(0, MAX_MESSAGE_LENGTH));
-    focusInput();
-  };
-
-  const handleCopy = async (id: string, content: string) => {
-    clearCopyTimer();
-
-    setCopiedId(null);
-    setCopyErrorId(null);
-
-    try {
-      await copyText(content);
-
-      setCopiedId(id);
-
-      copyTimeoutRef.current = setTimeout(() => {
-        setCopiedId((current) => (current === id ? null : current));
-        copyTimeoutRef.current = null;
-      }, COPY_FEEDBACK_DURATION);
-    } catch {
-      setCopyErrorId(id);
-
-      copyTimeoutRef.current = setTimeout(() => {
-        setCopyErrorId((current) => (current === id ? null : current));
-        copyTimeoutRef.current = null;
-      }, COPY_FEEDBACK_DURATION);
-    }
-  };
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    if (!canSubmit) {
-      event.preventDefault();
-      return;
-    }
-
-    onSubmit(event);
-  };
-
-  return (
-    <section
-      className="space-y-5 border-t border-line pt-5"
-      aria-label="Conversational website editor"
-    >
-      {/* Panel heading */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div
-            className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border transition-colors ${
-              disabled
-                ? "border-line bg-ink/[0.03]"
-                : "border-teal/20 bg-teal/10 shadow-sm"
-            }`}
-          >
-            <MessageSquarePlus
-              className={`h-5 w-5 ${
-                disabled ? "text-ink/35" : "text-teal"
-              }`}
+  if (files.length === 0) {
+    return (
+      <aside
+        aria-label="Project file explorer"
+        className="flex h-full min-h-32 w-full flex-col border-r border-line bg-paper"
+      >
+        <div className="flex flex-1 flex-col items-center justify-center px-5 py-10 text-center">
+          <div className="relative mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-line bg-ink/[0.025] shadow-sm">
+            <FolderOpen
+              className="h-7 w-7 text-ink/30"
               aria-hidden="true"
             />
 
-            {!disabled && (
-              <span
-                className={`absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-paper ${
-                  working
-                    ? "animate-pulse bg-amber-400"
-                    : "bg-emerald-500"
-                }`}
-                title={
-                  working
-                    ? "Changes in progress"
-                    : "Editor available"
-                }
-              />
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-extrabold tracking-tight text-ink sm:text-lg">
-                Conversational Edits
-              </h2>
-
-              {!disabled && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-teal/15 bg-teal/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-teal">
-                  <Sparkles className="h-3 w-3" aria-hidden="true" />
-                  AI Powered
-                </span>
-              )}
-            </div>
-
-            <p className="mt-0.5 text-xs leading-5 text-ink/50">
-              Describe an idea. Let your website evolve.
-            </p>
-          </div>
-        </div>
-
-        {messages.length > 0 && (
-          <div
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5"
-            aria-label={`${messages.length} messages in conversation`}
-            title={`${messages.length} messages`}
-          >
-            <CheckCircle2
-              className="h-3.5 w-3.5 text-teal"
-              aria-hidden="true"
-            />
-            <span className="text-[10px] font-bold tabular-nums text-ink/60">
-              {messages.length}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Conversation */}
-      <div className="relative">
-        <div
-          id={conversationId}
-          ref={messagesContainerRef}
-          onScroll={updateScrollState}
-          className="panel-scroll max-h-[420px] min-h-40 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-ink/[0.015] p-3 sm:p-4"
-          aria-label="Edit conversation"
-          aria-live="polite"
-          aria-relevant="additions text"
-          role="log"
-          aria-busy={working}
-        >
-          {messages.length === 0 ? (
-            <EmptyChatState />
-          ) : (
-            <div className="space-y-5">
-              {messages.map((message) => (
-                <ChatBubble
-                  key={message.id}
-                  message={message}
-                  isUser={message.role === "user"}
-                  isCopied={copiedId === message.id}
-                  copyFailed={copyErrorId === message.id}
-                  onCopy={handleCopy}
-                />
-              ))}
-
-              {working && <ThinkingIndicator />}
-
-              <div
-                ref={messagesEndRef}
-                aria-hidden="true"
-              />
-            </div>
-          )}
-        </div>
-
-        {showScrollButton && messages.length > 0 && (
-          <button
-            type="button"
-            onClick={() => scrollToBottom("smooth")}
-            className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-2 text-[10px] font-bold text-ink shadow-lg transition-all hover:border-teal/30 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
-            aria-label="Scroll to latest message"
-          >
-            <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
-            Latest message
-          </button>
-        )}
-      </div>
-
-      {/* Message composer */}
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div
-          className={`group relative overflow-hidden rounded-2xl border bg-paper transition-all duration-200 ${
-            canEdit
-              ? "border-line shadow-sm focus-within:border-teal/50 focus-within:ring-4 focus-within:ring-teal/[0.07]"
-              : "border-line opacity-70"
-          }`}
-        >
-          {canEdit && (
-            <div
-              className="pointer-events-none absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-teal transition-transform duration-300 group-focus-within:scale-x-100"
-              aria-hidden="true"
-            />
-          )}
-
-          <label htmlFor={inputId} className="sr-only">
-            Describe your website edit
-          </label>
-
-          <textarea
-            id={inputId}
-            ref={textareaRef}
-            value={chatText}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              disabled
-                ? "Editing is currently unavailable..."
-                : working
-                  ? "Your changes are being applied..."
-                  : "Describe what you want to improve..."
-            }
-            disabled={!canEdit}
-            rows={3}
-            maxLength={MAX_MESSAGE_LENGTH}
-            aria-describedby={`${helpId} ${countId}`}
-            className="block min-h-[76px] w-full resize-none overflow-y-auto bg-transparent px-4 pb-14 pt-4 text-sm leading-6 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
-          />
-
-          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              {chatText.length > 0 && canEdit ? (
-                <>
-                  <div
-                    className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-ink/[0.06]"
-                    role="progressbar"
-                    aria-label="Message character limit"
-                    aria-valuemin={0}
-                    aria-valuemax={MAX_MESSAGE_LENGTH}
-                    aria-valuenow={chatText.length}
-                  >
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        isNearLimit ? "bg-orange-500" : "bg-teal"
-                      }`}
-                      style={{ width: `${characterProgress}%` }}
-                    />
-                  </div>
-
-                  <span
-                    id={countId}
-                    className={`whitespace-nowrap text-[10px] font-medium tabular-nums ${
-                      isAtLimit
-                        ? "text-red-500"
-                        : isNearLimit
-                          ? "text-orange-500"
-                          : "text-ink/45"
-                    }`}
-                  >
-                    {remainingCharacters} left
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={handleClear}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink/45 transition-colors hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
-                    aria-label="Clear message"
-                    title="Clear message"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                </>
-              ) : working ? (
-                <span
-                  className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-teal"
-                  role="status"
-                >
-                  <Loader2
-                    className="h-3 w-3 animate-spin"
-                    aria-hidden="true"
-                  />
-                  Working on your design...
-                </span>
-              ) : !disabled ? (
-                <span className="inline-flex items-center gap-1.5 text-[10px] text-ink/40">
-                  <Sparkles
-                    className="h-3 w-3 text-teal"
-                    aria-hidden="true"
-                  />
-                  Ready for your next idea
-                </span>
-              ) : (
-                <span
-                  id={countId}
-                  className="text-[10px] text-ink/40"
-                >
-                  Editor unavailable
-                </span>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 focus-visible:ring-offset-2 ${
-                canSubmit
-                  ? "bg-ink text-white shadow-sm hover:-translate-y-0.5 hover:bg-black hover:shadow-md active:translate-y-0"
-                  : "cursor-not-allowed bg-ink/[0.06] text-ink/30"
-              }`}
-              aria-label={working ? "Applying changes" : "Apply edit"}
-              title={canSubmit ? "Apply edit" : "Enter a message first"}
-            >
-              {working ? (
-                <Loader2
-                  className="h-4 w-4 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Input guidance */}
-        {canEdit && (
-          <div
-            id={helpId}
-            className="flex flex-wrap items-center justify-between gap-2 px-1"
-          >
-            <span className="inline-flex items-center gap-1.5 text-[10px] leading-4 text-ink/45">
+            <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-paper bg-teal">
               <Sparkles
-                className="h-3 w-3 shrink-0 text-teal"
+                className="h-3 w-3 text-white"
                 aria-hidden="true"
               />
-              Be specific for better results.
             </span>
-
-            <div className="hidden items-center gap-1 text-[10px] text-ink/40 sm:flex">
-              <kbd className="rounded border border-line bg-paper px-1.5 py-0.5">
-                Enter
-              </kbd>
-              <span>to apply</span>
-              <span className="mx-1">·</span>
-              <kbd className="rounded border border-line bg-paper px-1.5 py-0.5">
-                Shift
-              </kbd>
-              <span>+</span>
-              <kbd className="rounded border border-line bg-paper px-1.5 py-0.5">
-                Enter
-              </kbd>
-              <span>for a new line</span>
-            </div>
-          </div>
-        )}
-
-        {/* Quick suggestions */}
-        {!trimmedText && canEdit && (
-          <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-1.5">
-                <WandSparkles
-                  className="h-3.5 w-3.5 text-teal"
-                  aria-hidden="true"
-                />
-                <h3 className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/55">
-                  Quick edits
-                </h3>
-              </div>
-
-              <span className="text-[10px] text-ink/35">
-                Start with an idea
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {SUGGESTIONS.map((suggestion) => {
-                const Icon = suggestion.icon;
-
-                return (
-                  <button
-                    key={suggestion.label}
-                    type="button"
-                    onClick={() => handleSuggestion(suggestion.text)}
-                    className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-paper p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/30 hover:bg-teal/[0.035] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30 active:translate-y-0"
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-teal/10 bg-teal/[0.08] text-teal transition-transform duration-200 group-hover:scale-105">
-                      <Icon className="h-4 w-4" aria-hidden="true" />
-                    </span>
-
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-bold text-ink/80 transition-colors group-hover:text-teal">
-                        {suggestion.label}
-                      </span>
-
-                      <span className="mt-1 block text-[10px] leading-4 text-ink/50">
-                        {suggestion.description}
-                      </span>
-                    </span>
-
-                    <ArrowUp
-                      className="h-3.5 w-3.5 shrink-0 -rotate-45 text-ink/25 transition-all group-hover:translate-x-0.5 group-hover:text-teal"
-                      aria-hidden="true"
-                    />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {disabled && (
-          <div
-            className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink/[0.025] px-3 py-3"
-            role="status"
-          >
-            <span className="h-2 w-2 rounded-full bg-ink/25" />
-            <p className="text-xs font-medium text-ink/50">
-              Website editing is currently unavailable.
-            </p>
-          </div>
-        )}
-      </form>
-    </section>
-  );
-}
-
-function EmptyChatState() {
-  return (
-    <div className="relative flex min-h-56 flex-col items-center justify-center overflow-hidden rounded-xl px-5 py-8 text-center">
-      <div
-        className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-teal/[0.07] blur-3xl"
-        aria-hidden="true"
-      />
-
-      <div className="relative mb-4">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-teal/15 bg-teal/10 shadow-sm">
-          <WandSparkles
-            className="h-6 w-6 text-teal"
-            aria-hidden="true"
-          />
-        </div>
-
-        <span
-          className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-paper bg-emerald-500 text-white"
-          aria-hidden="true"
-        >
-          <Check className="h-3 w-3" />
-        </span>
-      </div>
-
-      <h3 className="relative text-sm font-extrabold tracking-tight text-ink/85">
-        Your AI design assistant is ready
-      </h3>
-
-      <p className="relative mt-2 max-w-xs text-xs leading-5 text-ink/50">
-        Transform your website using natural language. Improve
-        layouts, colors, typography, content, spacing, and entire
-        sections.
-      </p>
-
-      <div className="relative mt-4 inline-flex items-center gap-2 rounded-full border border-teal/15 bg-teal/[0.06] px-3 py-1.5">
-        <Zap className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
-        <span className="text-[10px] font-bold text-teal">
-          Your next idea starts here
-        </span>
-      </div>
-
-      <div className="relative mt-5 flex flex-wrap justify-center gap-2">
-        {["Change colors", "Add a section", "Improve layout"].map(
-          (idea) => (
-            <span
-              key={idea}
-              className="rounded-full border border-line bg-paper/80 px-2.5 py-1 text-[10px] font-medium text-ink/50"
-            >
-              {idea}
-            </span>
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ChatBubble({
-  message,
-  isUser,
-  isCopied,
-  copyFailed,
-  onCopy,
-}: {
-  message: ChatMessage;
-  isUser: boolean;
-  isCopied: boolean;
-  copyFailed: boolean;
-  onCopy: (id: string, content: string) => void;
-}) {
-  return (
-    <div
-      className={`group flex items-start gap-2.5 sm:gap-3 ${
-        isUser ? "flex-row-reverse" : "flex-row"
-      }`}
-    >
-      <div
-        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${
-          isUser
-            ? "border-accent/15 bg-accent/10 text-accent"
-            : "border-teal/15 bg-teal/10 text-teal"
-        }`}
-        aria-hidden="true"
-      >
-        {isUser ? (
-          <User className="h-4 w-4" />
-        ) : (
-          <Sparkles className="h-4 w-4" />
-        )}
-      </div>
-
-      <div
-        className={`flex min-w-0 max-w-[88%] flex-col sm:max-w-[82%] ${
-          isUser ? "items-end" : "items-start"
-        }`}
-      >
-        <div
-          className={`min-w-0 rounded-2xl border px-3.5 py-3 shadow-sm transition-shadow group-hover:shadow-md sm:px-4 ${
-            isUser
-              ? "rounded-tr-md border-accent/15 bg-accent/[0.06]"
-              : "rounded-tl-md border-line bg-paper"
-          }`}
-        >
-          <div
-            className={`mb-2 flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-[0.12em] ${
-              isUser ? "text-accent" : "text-teal"
-            }`}
-          >
-            {isUser ? (
-              <>
-                <User className="h-3 w-3" aria-hidden="true" />
-                You
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3 w-3" aria-hidden="true" />
-                AI Assistant
-              </>
-            )}
           </div>
 
-          <p className="whitespace-pre-wrap break-words text-xs leading-5 text-ink sm:text-[13px] sm:leading-6">
-            {message.content}
+          <h2 className="text-xs font-bold text-ink/80">
+            No project files yet
+          </h2>
+
+          <p className="mt-2 max-w-[220px] text-[10px] leading-5 text-ink/45">
+            Generate a website to explore its source code,
+            folders, configuration files, and assets.
           </p>
         </div>
+      </aside>
+    );
+  }
 
-        {!isUser && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onCopy(message.id, message.content)}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold text-ink/45 transition-colors hover:bg-ink/[0.04] hover:text-ink/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
-              aria-label={
-                isCopied
-                  ? "Message copied"
-                  : copyFailed
-                    ? "Copy failed, try again"
-                    : "Copy AI response"
-              }
-            >
-              {isCopied ? (
-                <>
-                  <CheckCheck
-                    className="h-3.5 w-3.5 text-emerald-500"
-                    aria-hidden="true"
-                  />
-                  Copied
-                </>
-              ) : copyFailed ? (
-                <>
-                  <RotateCcw
-                    className="h-3.5 w-3.5 text-red-500"
-                    aria-hidden="true"
-                  />
-                  Try again
-                </>
-              ) : (
-                <>
-                  <Clipboard
+  return (
+    <aside
+      aria-label="Project file explorer"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-line bg-paper"
+    >
+      {/* Header */}
+      <header className="shrink-0 border-b border-line">
+        <div className="px-3.5 pb-3 pt-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-teal/10 bg-teal/10">
+                <FolderOpen
+                  className="h-4 w-4 text-teal"
+                  aria-hidden="true"
+                />
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="truncate text-[11px] font-black uppercase tracking-[0.09em] text-ink">
+                    Project Explorer
+                  </h2>
+
+                  <span className="hidden rounded-full bg-teal/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-teal sm:inline-flex">
+                    Source
+                  </span>
+                </div>
+
+                <p className="mt-1 text-[9px] font-medium text-ink/45">
+                  {files.length} {files.length === 1 ? "file" : "files"}
+                  <span className="mx-1.5 text-ink/20">•</span>
+                  {folderCount}{" "}
+                  {folderCount === 1 ? "folder" : "folders"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span
+                title={`${files.length} project files`}
+                className="flex h-7 min-w-7 items-center justify-center rounded-lg border border-line bg-ink/[0.025] px-1.5 text-[9px] font-bold tabular-nums text-ink/60"
+              >
+                {files.length}
+              </span>
+
+              <button
+                type="button"
+                onClick={toggleAllFolders}
+                disabled={allFolders.length === 0}
+                title={
+                  allCollapsed
+                    ? "Expand all folders"
+                    : "Collapse all folders"
+                }
+                aria-label={
+                  allCollapsed
+                    ? "Expand all folders"
+                    : "Collapse all folders"
+                }
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-line text-ink/45 transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+              >
+                {allCollapsed ? (
+                  <PanelLeftOpen
                     className="h-3.5 w-3.5"
                     aria-hidden="true"
                   />
-                  Copy response
-                </>
-              )}
-            </button>
+                ) : (
+                  <PanelLeftClose
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                )}
+              </button>
+            </div>
+          </div>
 
-            {copyFailed && (
-              <span className="text-[10px] text-red-500" role="status">
-                Clipboard unavailable
-              </span>
+          {/* Search */}
+          <div className="relative mt-3.5">
+            <label htmlFor={searchId} className="sr-only">
+              Search project files and folders
+            </label>
+
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink/35"
+              aria-hidden="true"
+            />
+
+            <input
+              id={searchId}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search files, folders, extensions..."
+              autoComplete="off"
+              spellCheck={false}
+              className="h-9 w-full rounded-xl border border-line bg-ink/[0.018] pl-8 pr-8 text-[10px] font-medium text-ink outline-none transition-all placeholder:text-ink/35 hover:border-ink/10 focus:border-teal/40 focus:bg-paper focus:ring-4 focus:ring-teal/5"
+            />
+
+            {hasSearch && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear file search"
+                title="Clear search"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-lg text-ink/40 transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
             )}
+          </div>
+
+          {/* Search results */}
+          {hasSearch && (
+            <div
+              aria-live="polite"
+              aria-atomic="true"
+              className="mt-2 flex items-center justify-between px-0.5"
+            >
+              <span className="text-[8px] font-medium text-ink/40">
+                Search results
+              </span>
+
+              <span className="text-[8px] font-bold tabular-nums text-teal">
+                {filteredFiles.length}{" "}
+                {filteredFiles.length === 1 ? "match" : "matches"}
+              </span>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* File list */}
+      <div className="panel-scroll min-h-0 flex-1 overflow-auto px-2 py-2.5">
+        {filteredFiles.length > 0 ? (
+          <div className="space-y-3">
+            {folderGroups.map((group) => {
+              const isRoot = group.path === "";
+              const isCollapsed =
+                !isRoot && collapsedFolders.has(group.path);
+
+              return (
+                <section
+                  key={group.path || "__root__"}
+                  aria-label={`${group.name} folder`}
+                >
+                  {/* Folder heading */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isRoot) {
+                        toggleFolder(group.path);
+                      }
+                    }}
+                    disabled={isRoot}
+                    aria-expanded={isRoot ? undefined : !isCollapsed}
+                    className={`mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                      isRoot
+                        ? "cursor-default"
+                        : "cursor-pointer hover:bg-ink/[0.035]"
+                    } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30`}
+                  >
+                    {isRoot ? (
+                      <Files
+                        className="h-3.5 w-3.5 shrink-0 text-ink/40"
+                        aria-hidden="true"
+                      />
+                    ) : isCollapsed ? (
+                      <ChevronRight
+                        className="h-3 w-3 shrink-0 text-ink/40"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ChevronDown
+                        className="h-3 w-3 shrink-0 text-ink/40"
+                        aria-hidden="true"
+                      />
+                    )}
+
+                    {isRoot ? (
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-ink/45">
+                        Root files
+                      </span>
+                    ) : (
+                      <Folder
+                        className="h-3.5 w-3.5 shrink-0 text-amber-500/80"
+                        aria-hidden="true"
+                      />
+                    )}
+
+                    <span
+                      className="min-w-0 flex-1 truncate text-[9px] font-semibold text-ink/55"
+                      title={group.path || "Root"}
+                    >
+                      {isRoot ? "Project root" : group.name}
+                    </span>
+
+                    <span className="shrink-0 rounded-md bg-ink/[0.035] px-1.5 py-0.5 text-[8px] font-medium tabular-nums text-ink/40">
+                      {group.files.length}
+                    </span>
+                  </button>
+
+                  {/* Files in folder */}
+                  {!isCollapsed && (
+                    <div className="space-y-0.5">
+                      {group.files.map((file) => {
+                        const isSelected =
+                          selectedFile === file.path;
+
+                        const CurrentFileIcon = getFileIcon(file.path);
+                        const iconColor = getFileIconColor(file.path);
+
+                        return (
+                          <button
+                            key={`${file.path}-${file.originalIndex}`}
+                            type="button"
+                            onClick={() => onSelectFile(file.path)}
+                            title={file.path}
+                            aria-current={
+                              isSelected ? "page" : undefined
+                            }
+                            aria-label={`Open ${file.path}${
+                              isSelected
+                                ? ", currently selected"
+                                : ""
+                            }`}
+                            className={`group relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-teal/30 ${
+                              isSelected
+                                ? "bg-ink text-white shadow-sm"
+                                : "text-ink/70 hover:bg-ink/[0.035] hover:text-ink"
+                            }`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r-full bg-teal transition-all ${
+                                isSelected ? "w-0.5" : "w-0"
+                              }`}
+                            />
+
+                            <span
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                                isSelected
+                                  ? "bg-white/10"
+                                  : "border border-line/60 bg-ink/[0.025] group-hover:border-teal/15 group-hover:bg-teal/10"
+                              }`}
+                            >
+                              <CurrentFileIcon
+                                className={`h-4 w-4 transition-colors ${
+                                  isSelected
+                                    ? "text-teal"
+                                    : `${iconColor} group-hover:text-teal`
+                                }`}
+                                aria-hidden="true"
+                              />
+                            </span>
+
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className={`block truncate font-mono text-[10px] leading-4 ${
+                                  isSelected
+                                    ? "font-semibold text-white"
+                                    : "font-medium text-ink/80 group-hover:text-ink"
+                                }`}
+                              >
+                                {file.name}
+                              </span>
+
+                              {hasSearch && (
+                                <span
+                                  className={`mt-0.5 block truncate font-mono text-[8px] leading-3 ${
+                                    isSelected
+                                      ? "text-white/50"
+                                      : "text-ink/40"
+                                  }`}
+                                >
+                                  {file.folderPath || "Project root"}
+                                </span>
+                              )}
+                            </span>
+
+                            {file.extension && (
+                              <span
+                                className={`hidden shrink-0 rounded-md border px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wide sm:block ${
+                                  isSelected
+                                    ? "border-white/10 bg-white/5 text-white/55"
+                                    : "border-line/60 bg-ink/[0.02] text-ink/40 group-hover:border-teal/15 group-hover:text-teal"
+                                }`}
+                              >
+                                {file.extension}
+                              </span>
+                            )}
+
+                            {isSelected && (
+                              <Check
+                                className="h-3.5 w-3.5 shrink-0 text-teal"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex min-h-48 flex-col items-center justify-center px-4 py-8 text-center">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-line bg-ink/[0.025]">
+              <Search
+                className="h-4 w-4 text-ink/35"
+                aria-hidden="true"
+              />
+            </div>
+
+            <p className="text-[10px] font-bold text-ink/75">
+              No matching files
+            </p>
+
+            <p className="mt-1 max-w-[210px] break-words text-[9px] leading-4 text-ink/45">
+              Nothing matches{" "}
+              <span className="font-semibold text-ink/65">
+                &quot;{trimmedQuery}&quot;
+              </span>
+            </p>
+
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="mt-3 rounded-lg border border-line bg-paper px-3 py-1.5 text-[9px] font-bold text-teal transition-colors hover:border-teal/20 hover:bg-teal/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+            >
+              Clear search
+            </button>
           </div>
         )}
       </div>
-    </div>
-  );
-}
 
-function ThinkingIndicator() {
-  return (
-    <div
-      className="flex items-start gap-2.5 sm:gap-3"
-      role="status"
-      aria-label="AI is applying website changes"
-    >
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-teal/15 bg-teal/10">
-        <Sparkles
-          className="h-4 w-4 animate-pulse text-teal"
-          aria-hidden="true"
-        />
-      </div>
+      {/* Footer */}
+      <footer className="shrink-0 border-t border-line bg-paper px-3 py-2.5">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className={`relative flex h-1.5 w-1.5 shrink-0 rounded-full ${
+                selectedExists ? "bg-teal" : "bg-ink/20"
+              }`}
+            >
+              {selectedExists && (
+                <span className="absolute inset-0 animate-ping rounded-full bg-teal/40" />
+              )}
+            </span>
 
-      <div className="rounded-2xl rounded-tl-md border border-line bg-paper px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal" />
+            <span
+              className={`truncate text-[8px] font-medium ${
+                selectedExists
+                  ? "text-ink/50"
+                  : "text-ink/35"
+              }`}
+              title={
+                selectedExists
+                  ? normalizePath(selectedFile)
+                  : undefined
+              }
+            >
+              {selectedExists
+                ? normalizePath(selectedFile)
+                : "No file selected"}
+            </span>
+          </div>
 
-          <span
-            className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-            style={{ animationDelay: "120ms" }}
-          />
-
-          <span
-            className="h-1.5 w-1.5 animate-bounce rounded-full bg-teal"
-            style={{ animationDelay: "240ms" }}
-          />
-
-          <span className="ml-1.5 text-[10px] font-semibold text-ink/50">
-            Working on your design...
-          </span>
-
-          <Loader2
-            className="ml-1 h-3 w-3 animate-spin text-teal/60"
-            aria-hidden="true"
-          />
+          {hasSearch ? (
+            <button
+              type="button"
+              onClick={clearSearch}
+              title="Clear search and show all files"
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-bold text-teal/80 transition-colors hover:bg-teal/5 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
+            >
+              {filteredFiles.length}/{files.length}
+            </button>
+          ) : (
+            <div className="flex shrink-0 items-center gap-1">
+              <Check
+                className="h-3 w-3 text-teal/80"
+                aria-hidden="true"
+              />
+              <span className="text-[8px] font-bold text-teal/80">
+                Ready
+              </span>
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+      </footer>
+    </aside>
   );
 }
