@@ -83,7 +83,6 @@ export const promptSchema = z
    Inferred Types
 ========================= */
 
-// Validated data after trimming and defaults.
 export type CreateProjectInput = z.infer<
   typeof createProjectSchema
 >;
@@ -92,7 +91,6 @@ export type PromptInput = z.infer<
   typeof promptSchema
 >;
 
-// Input accepted before defaults and transformations.
 export type CreateProjectRequest = z.input<
   typeof createProjectSchema
 >;
