@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -6,6 +7,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -57,20 +59,20 @@ const COPY_FEEDBACK_DURATION = 1800;
 const SUGGESTIONS: Suggestion[] = [
   {
     label: "Modern colors",
-    description: "Create a consistent color palette",
-    text: "Improve the website's color palette with modern, harmonious, accessible colors. Maintain consistency across all sections, buttons, cards, and interactive elements.",
+    description: "Create a cohesive color palette",
+    text: "Improve the website's color palette with modern, harmonious, accessible colors. Maintain consistency across sections, buttons, cards, and interactive elements.",
     icon: Palette,
   },
   {
     label: "Add pricing",
-    description: "Create professional pricing cards",
+    description: "Build professional pricing cards",
     text: "Add a responsive pricing section with polished pricing cards, clear feature comparisons, a highlighted recommended plan, subtle hover effects, and prominent call-to-action buttons.",
     icon: LayoutTemplate,
   },
   {
     label: "Better typography",
     description: "Improve readability and hierarchy",
-    text: "Improve typography throughout the website with a modern font, consistent font sizes, comfortable line heights, balanced spacing, and a clear visual hierarchy.",
+    text: "Improve typography throughout the website with modern fonts, consistent font sizes, comfortable line heights, balanced spacing, and a clear visual hierarchy.",
     icon: Type,
   },
   {
@@ -81,13 +83,13 @@ const SUGGESTIONS: Suggestion[] = [
   },
   {
     label: "Mobile responsive",
-    description: "Optimize layouts for every screen",
+    description: "Optimize every screen size",
     text: "Make the entire website responsive across mobile, tablet, laptop, and desktop screens. Fix overflowing elements, improve mobile navigation, and ensure buttons, cards, forms, and layouts adapt correctly.",
     icon: LayoutTemplate,
   },
   {
     label: "Improve buttons",
-    description: "Upgrade interactive elements",
+    description: "Polish interactive elements",
     text: "Improve buttons and interactive elements with consistent sizing, accessible contrast, clear hover and focus states, smooth transitions, and polished disabled states.",
     icon: Zap,
   },
@@ -103,14 +105,16 @@ async function copyText(text: string): Promise<void> {
 
   textarea.value = text;
   textarea.readOnly = true;
+  textarea.setAttribute("aria-hidden", "true");
   textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  textarea.style.top = "0";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
 
   document.body.appendChild(textarea);
-  textarea.select();
 
   try {
+    textarea.select();
+
     if (!document.execCommand("copy")) {
       throw new Error("Unable to copy text");
     }
@@ -131,12 +135,17 @@ export function ChatPanel({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const copyTimeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const scrollFrameRef = useRef<number | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousMessageCountRef = useRef(messages.length);
+
+  const inputId = useId();
+  const helpId = useId();
+  const countId = useId();
+  const conversationId = useId();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copyErrorId, setCopyErrorId] = useState<string | null>(null);
@@ -144,8 +153,8 @@ export function ChatPanel({
 
   const canEdit = !disabled && !working;
   const trimmedText = chatText.trim();
-  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
 
+  const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
   const characterProgress = Math.min(
     (chatText.length / MAX_MESSAGE_LENGTH) * 100,
     100,
@@ -166,21 +175,47 @@ export function ChatPanel({
     }
   }, []);
 
+  const cancelScrollFrame = useCallback(() => {
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
-    return () => clearCopyTimer();
-  }, [clearCopyTimer]);
+    return () => {
+      clearCopyTimer();
+      cancelScrollFrame();
+    };
+  }, [clearCopyTimer, cancelScrollFrame]);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
-      messagesEndRef.current?.scrollIntoView({
-        behavior,
-        block: "end",
-      });
+      const container = messagesContainerRef.current;
+
+      if (container) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior,
+        });
+      }
 
       shouldAutoScrollRef.current = true;
       setShowScrollButton(false);
     },
     [],
+  );
+
+  const scheduleScrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      cancelScrollFrame();
+
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        scrollToBottom(behavior);
+      });
+    },
+    [cancelScrollFrame, scrollToBottom],
   );
 
   const updateScrollState = useCallback(() => {
@@ -199,6 +234,7 @@ export function ChatPanel({
     setShowScrollButton(!nearBottom);
   }, []);
 
+  // Follow new messages without forcing the user away from older messages.
   useEffect(() => {
     const hasNewMessages =
       messages.length !== previousMessageCountRef.current;
@@ -212,34 +248,30 @@ export function ChatPanel({
     }
 
     if (shouldAutoScrollRef.current && hasNewMessages) {
-      const frame = requestAnimationFrame(() => {
-        scrollToBottom("smooth");
-      });
-
-      return () => cancelAnimationFrame(frame);
+      scheduleScrollToBottom("smooth");
     }
-  }, [messages.length, scrollToBottom]);
+  }, [messages.length, scheduleScrollToBottom]);
 
+  // Keep the latest assistant content visible during generation.
   useEffect(() => {
     if (!working || !shouldAutoScrollRef.current) return;
 
-    const frame = requestAnimationFrame(() => {
-      scrollToBottom("smooth");
-    });
+    scheduleScrollToBottom("auto");
+  }, [working, messages, scheduleScrollToBottom]);
 
-    return () => cancelAnimationFrame(frame);
-  }, [working, scrollToBottom]);
-
+  // Reset conversation-specific UI when the conversation is cleared.
   useEffect(() => {
     if (messages.length !== 0) return;
 
+    clearCopyTimer();
     setCopiedId(null);
     setCopyErrorId(null);
     setShowScrollButton(false);
     shouldAutoScrollRef.current = true;
     previousMessageCountRef.current = 0;
-  }, [messages.length]);
+  }, [messages.length, clearCopyTimer]);
 
+  // Automatically resize the input as the user types.
   useEffect(() => {
     const textarea = textareaRef.current;
 
@@ -254,9 +286,12 @@ export function ChatPanel({
 
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY =
-      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
+      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT
+        ? "auto"
+        : "hidden";
   }, [chatText]);
 
+  // Focus the input when the editor first becomes available.
   useEffect(() => {
     if (!canEdit || messages.length > 0) return;
 
@@ -267,7 +302,15 @@ export function ChatPanel({
     return () => cancelAnimationFrame(frame);
   }, [canEdit, messages.length]);
 
-  const handleChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+  const focusInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, []);
+
+  const handleChange = (
+    event: ChangeEvent<HTMLTextAreaElement>,
+  ) => {
     const value = event.target.value;
 
     if (value.length <= MAX_MESSAGE_LENGTH) {
@@ -280,6 +323,7 @@ export function ChatPanel({
   ) => {
     if (event.key !== "Enter" || event.shiftKey) return;
 
+    // Do not submit while an IME composition is in progress.
     if (
       event.nativeEvent.isComposing ||
       event.nativeEvent.keyCode === 229
@@ -294,13 +338,9 @@ export function ChatPanel({
     }
   };
 
-  const focusInput = useCallback(() => {
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-    });
-  }, []);
-
   const handleClear = () => {
+    if (!canEdit) return;
+
     setChatText("");
     focusInput();
   };
@@ -314,11 +354,13 @@ export function ChatPanel({
 
   const handleCopy = async (id: string, content: string) => {
     clearCopyTimer();
+
     setCopiedId(null);
     setCopyErrorId(null);
 
     try {
       await copyText(content);
+
       setCopiedId(id);
 
       copyTimeoutRef.current = setTimeout(() => {
@@ -349,6 +391,7 @@ export function ChatPanel({
       className="space-y-5 border-t border-line pt-5"
       aria-label="Conversational website editor"
     >
+      {/* Panel heading */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div
@@ -368,9 +411,15 @@ export function ChatPanel({
             {!disabled && (
               <span
                 className={`absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-paper ${
-                  working ? "animate-pulse bg-amber-400" : "bg-emerald-500"
+                  working
+                    ? "animate-pulse bg-amber-400"
+                    : "bg-emerald-500"
                 }`}
-                title={working ? "Changes in progress" : "Editor available"}
+                title={
+                  working
+                    ? "Changes in progress"
+                    : "Editor available"
+                }
               />
             )}
           </div>
@@ -399,6 +448,7 @@ export function ChatPanel({
           <div
             className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1.5"
             aria-label={`${messages.length} messages in conversation`}
+            title={`${messages.length} messages`}
           >
             <CheckCircle2
               className="h-3.5 w-3.5 text-teal"
@@ -411,8 +461,10 @@ export function ChatPanel({
         )}
       </div>
 
+      {/* Conversation */}
       <div className="relative">
         <div
+          id={conversationId}
           ref={messagesContainerRef}
           onScroll={updateScrollState}
           className="panel-scroll max-h-[420px] min-h-40 overflow-y-auto overscroll-contain rounded-2xl border border-line bg-ink/[0.015] p-3 sm:p-4"
@@ -439,7 +491,10 @@ export function ChatPanel({
 
               {working && <ThinkingIndicator />}
 
-              <div ref={messagesEndRef} aria-hidden="true" />
+              <div
+                ref={messagesEndRef}
+                aria-hidden="true"
+              />
             </div>
           )}
         </div>
@@ -457,6 +512,7 @@ export function ChatPanel({
         )}
       </div>
 
+      {/* Message composer */}
       <form onSubmit={handleSubmit} className="space-y-3">
         <div
           className={`group relative overflow-hidden rounded-2xl border bg-paper transition-all duration-200 ${
@@ -472,12 +528,12 @@ export function ChatPanel({
             />
           )}
 
-          <label htmlFor="website-edit-input" className="sr-only">
+          <label htmlFor={inputId} className="sr-only">
             Describe your website edit
           </label>
 
           <textarea
-            id="website-edit-input"
+            id={inputId}
             ref={textareaRef}
             value={chatText}
             onChange={handleChange}
@@ -492,7 +548,7 @@ export function ChatPanel({
             disabled={!canEdit}
             rows={3}
             maxLength={MAX_MESSAGE_LENGTH}
-            aria-describedby="chat-input-help chat-character-count"
+            aria-describedby={`${helpId} ${countId}`}
             className="block min-h-[76px] w-full resize-none overflow-y-auto bg-transparent px-4 pb-14 pt-4 text-sm leading-6 text-ink outline-none placeholder:text-ink/35 disabled:cursor-not-allowed"
           />
 
@@ -517,7 +573,7 @@ export function ChatPanel({
                   </div>
 
                   <span
-                    id="chat-character-count"
+                    id={countId}
                     className={`whitespace-nowrap text-[10px] font-medium tabular-nums ${
                       isAtLimit
                         ? "text-red-500"
@@ -558,7 +614,14 @@ export function ChatPanel({
                   />
                   Ready for your next idea
                 </span>
-              ) : null}
+              ) : (
+                <span
+                  id={countId}
+                  className="text-[10px] text-ink/40"
+                >
+                  Editor unavailable
+                </span>
+              )}
             </div>
 
             <button
@@ -584,9 +647,10 @@ export function ChatPanel({
           </div>
         </div>
 
+        {/* Input guidance */}
         {canEdit && (
           <div
-            id="chat-input-help"
+            id={helpId}
             className="flex flex-wrap items-center justify-between gap-2 px-1"
           >
             <span className="inline-flex items-center gap-1.5 text-[10px] leading-4 text-ink/45">
@@ -615,6 +679,7 @@ export function ChatPanel({
           </div>
         )}
 
+        {/* Quick suggestions */}
         {!trimmedText && canEdit && (
           <div className="space-y-3 pt-1">
             <div className="flex items-center justify-between gap-2 px-1">
@@ -652,6 +717,7 @@ export function ChatPanel({
                       <span className="block truncate text-xs font-bold text-ink/80 transition-colors group-hover:text-teal">
                         {suggestion.label}
                       </span>
+
                       <span className="mt-1 block text-[10px] leading-4 text-ink/50">
                         {suggestion.description}
                       </span>
@@ -713,8 +779,9 @@ function EmptyChatState() {
       </h3>
 
       <p className="relative mt-2 max-w-xs text-xs leading-5 text-ink/50">
-        Transform your website using natural language. Improve layouts,
-        colors, typography, content, spacing, and entire sections.
+        Transform your website using natural language. Improve
+        layouts, colors, typography, content, spacing, and entire
+        sections.
       </p>
 
       <div className="relative mt-4 inline-flex items-center gap-2 rounded-full border border-teal/15 bg-teal/[0.06] px-3 py-1.5">
@@ -725,14 +792,16 @@ function EmptyChatState() {
       </div>
 
       <div className="relative mt-5 flex flex-wrap justify-center gap-2">
-        {["Change colors", "Add a section", "Improve layout"].map((idea) => (
-          <span
-            key={idea}
-            className="rounded-full border border-line bg-paper/80 px-2.5 py-1 text-[10px] font-medium text-ink/50"
-          >
-            {idea}
-          </span>
-        ))}
+        {["Change colors", "Add a section", "Improve layout"].map(
+          (idea) => (
+            <span
+              key={idea}
+              className="rounded-full border border-line bg-paper/80 px-2.5 py-1 text-[10px] font-medium text-ink/50"
+            >
+              {idea}
+            </span>
+          ),
+        )}
       </div>
     </div>
   );
@@ -778,7 +847,7 @@ function ChatBubble({
         }`}
       >
         <div
-          className={`rounded-2xl border px-3.5 py-3 shadow-sm transition-shadow group-hover:shadow-md sm:px-4 ${
+          className={`min-w-0 rounded-2xl border px-3.5 py-3 shadow-sm transition-shadow group-hover:shadow-md sm:px-4 ${
             isUser
               ? "rounded-tr-md border-accent/15 bg-accent/[0.06]"
               : "rounded-tl-md border-line bg-paper"
@@ -839,7 +908,10 @@ function ChatBubble({
                 </>
               ) : (
                 <>
-                  <Clipboard className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Clipboard
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
                   Copy response
                 </>
               )}
@@ -888,6 +960,11 @@ function ThinkingIndicator() {
           <span className="ml-1.5 text-[10px] font-semibold text-ink/50">
             Working on your design...
           </span>
+
+          <Loader2
+            className="ml-1 h-3 w-3 animate-spin text-teal/60"
+            aria-hidden="true"
+          />
         </div>
       </div>
     </div>
