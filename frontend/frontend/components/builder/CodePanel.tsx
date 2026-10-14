@@ -198,6 +198,7 @@ export function CodePanel({
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [codeSearch, setCodeSearch] = useState("");
+  const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
   const [showSearch, setShowSearch] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showAllIssues, setShowAllIssues] = useState(false);
@@ -258,6 +259,9 @@ export function CodePanel({
     );
   }, [codeLines, codeSearch]);
 
+  const activeSearchMatch =
+    filteredCode[selectedMatchIndex] ?? null;
+
   const displayedIssues = showAllIssues
     ? issues
     : issues.slice(0, 3);
@@ -293,6 +297,7 @@ export function CodePanel({
 
   useEffect(() => {
     setCodeSearch("");
+    setSelectedMatchIndex(0);
     setShowAllIssues(false);
     resetCopyFeedback();
 
@@ -301,6 +306,17 @@ export function CodePanel({
       editorRef.current.scrollLeft = 0;
     }
   }, [activeFile?.path, resetCopyFeedback]);
+
+  useEffect(() => {
+    if (!codeSearch.trim()) {
+      setSelectedMatchIndex(0);
+      return;
+    }
+
+    if (selectedMatchIndex >= filteredCode.length) {
+      setSelectedMatchIndex(Math.max(filteredCode.length - 1, 0));
+    }
+  }, [codeSearch, filteredCode, selectedMatchIndex]);
 
   const handleCopy = useCallback(async () => {
     if (!activeFile) return;
@@ -335,6 +351,7 @@ export function CodePanel({
   const closeSearch = useCallback(() => {
     setShowSearch(false);
     setCodeSearch("");
+    setSelectedMatchIndex(0);
   }, []);
 
   const closeExpanded = useCallback(() => {
@@ -772,6 +789,9 @@ export function CodePanel({
                 <SearchResults
                   results={filteredCode}
                   query={codeSearch}
+                  selectedIndex={selectedMatchIndex}
+                  onSelectIndex={setSelectedMatchIndex}
+                  activeMatch={activeSearchMatch}
                 />
               ) : (
                 <>
@@ -980,9 +1000,15 @@ function EmptyCodeState() {
 function SearchResults({
   results,
   query,
+  selectedIndex,
+  onSelectIndex,
+  activeMatch,
 }: {
   results: SearchResult[];
   query: string;
+  selectedIndex: number;
+  onSelectIndex: (index: number) => void;
+  activeMatch: SearchResult | null;
 }) {
   if (!results.length) {
     return (
@@ -1003,6 +1029,9 @@ function SearchResults({
     );
   }
 
+  const canGoBack = selectedIndex > 0;
+  const canGoForward = selectedIndex < results.length - 1;
+
   return (
     <div className="min-w-full p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -1014,26 +1043,65 @@ function SearchResults({
           {results.length} {results.length === 1 ? "match" : "matches"}
         </div>
 
-        <span className="rounded-full border border-white/5 bg-white/[0.03] px-2 py-0.5 text-[8px] text-white/40">
-          Search results
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onSelectIndex(Math.max(selectedIndex - 1, 0))}
+            disabled={!canGoBack}
+            className="rounded border border-white/10 bg-white/[0.02] px-2 py-0.5 text-[8px] font-medium text-white/60 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Previous match"
+          >
+            Prev
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectIndex(Math.min(selectedIndex + 1, results.length - 1))}
+            disabled={!canGoForward}
+            className="rounded border border-white/10 bg-white/[0.02] px-2 py-0.5 text-[8px] font-medium text-white/60 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Next match"
+          >
+            Next
+          </button>
+
+          <span className="rounded-full border border-white/5 bg-white/[0.03] px-2 py-0.5 text-[8px] text-white/40">
+            {selectedIndex + 1}/{results.length}
+          </span>
+        </div>
       </div>
 
-      <div className="w-max min-w-full overflow-hidden rounded-lg border border-white/5 bg-white/[0.02]">
-        {results.map(({ line, number }) => (
-          <div
-            key={number}
-            className="flex min-w-max border-b border-white/[0.035] last:border-b-0 hover:bg-white/[0.035]"
-          >
-            <span className="w-12 shrink-0 select-none border-r border-white/5 px-3 py-1.5 text-right font-mono text-[9px] text-white/40">
-              {number}
-            </span>
+      {activeMatch && (
+        <div className="mb-3 rounded-lg border border-teal/30 bg-teal/10 px-3 py-2 text-[10px] font-medium text-teal-100/90">
+          <span className="font-semibold">Current match:</span> line {activeMatch.number}
+        </div>
+      )}
 
-            <pre className="whitespace-pre px-3 py-1.5 font-mono text-[10px] leading-5 text-white/80">
-              {highlightMatch(line || " ", query)}
-            </pre>
-          </div>
-        ))}
+      <div className="w-max min-w-full overflow-hidden rounded-lg border border-white/5 bg-white/[0.02]">
+        {results.map(({ line, number }, index) => {
+          const isSelected = index === selectedIndex;
+
+          return (
+            <button
+              key={number}
+              type="button"
+              onClick={() => onSelectIndex(index)}
+              className={`flex min-w-max w-full border-b border-white/[0.035] text-left last:border-b-0 transition-colors ${
+                isSelected
+                  ? "bg-teal/10 hover:bg-teal/15"
+                  : "hover:bg-white/[0.035]"
+              }`}
+              aria-label={`Jump to line ${number}`}
+            >
+              <span className="w-12 shrink-0 select-none border-r border-white/5 px-3 py-1.5 text-right font-mono text-[9px] text-white/40">
+                {number}
+              </span>
+
+              <pre className="whitespace-pre px-3 py-1.5 font-mono text-[10px] leading-5 text-white/80">
+                {highlightMatch(line || " ", query)}
+              </pre>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
