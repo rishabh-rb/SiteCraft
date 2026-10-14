@@ -3,4 +3,8 @@ export {};
 
 const message: string = "SiteCraft backend is running";
 
-console.log(message);
+function startBackend(): void {
+  console.log(message);
+}
+
+startBackend();
