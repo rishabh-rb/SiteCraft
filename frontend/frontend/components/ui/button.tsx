@@ -1,3 +1,4 @@
+
 import type {
   AnchorHTMLAttributes,
   ButtonHTMLAttributes,
@@ -64,6 +65,23 @@ function Spinner({ size = "md" }: { size?: Size }) {
   );
 }
 
+function getClassName(
+  variant: Variant,
+  size: Size,
+  fullWidth: boolean,
+  className?: string
+) {
+  return [
+    base,
+    sizes[size],
+    variants[variant],
+    fullWidth ? "w-full" : "",
+    className ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 interface ButtonProps
   extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -77,7 +95,7 @@ interface ButtonProps
 export function Button({
   variant = "primary",
   size = "md",
-  className = "",
+  className,
   type = "button",
   loading = false,
   loadingText = "Loading...",
@@ -96,15 +114,12 @@ export function Button({
       disabled={isDisabled}
       aria-busy={loading || undefined}
       aria-label={ariaLabel}
-      className={[
-        base,
-        sizes[size],
-        variants[variant],
-        fullWidth ? "w-full" : "",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={getClassName(
+        variant,
+        size,
+        fullWidth,
+        className
+      )}
     >
       {loading ? (
         <>
@@ -133,7 +148,7 @@ interface ButtonLinkProps
 export function ButtonLink({
   variant = "primary",
   size = "md",
-  className = "",
+  className,
   href,
   fullWidth = false,
   children,
@@ -143,15 +158,12 @@ export function ButtonLink({
     <Link
       href={href}
       {...props}
-      className={[
-        base,
-        sizes[size],
-        variants[variant],
-        fullWidth ? "w-full" : "",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={getClassName(
+        variant,
+        size,
+        fullWidth,
+        className
+      )}
     >
       {children}
     </Link>
