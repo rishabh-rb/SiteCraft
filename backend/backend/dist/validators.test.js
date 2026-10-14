@@ -7,6 +7,10 @@ import {
   promptSchema,
 } from "./validators.js";
 
+/* =========================
+   PROMPT VALIDATION
+========================= */
+
 test("accepts valid prompts and trims whitespace", () => {
   const result = promptSchema.safeParse({
     prompt: "  Build a cafe website  ",
@@ -55,10 +59,36 @@ test("rejects prompts exceeding 2000 characters", () => {
 });
 
 test("rejects missing or non-string prompts", () => {
-  for (const input of [{}, { prompt: null }, { prompt: 123 }]) {
-    assert.equal(promptSchema.safeParse(input).success, false);
+  for (const input of [
+    {},
+    { prompt: undefined },
+    { prompt: null },
+    { prompt: 123 },
+    { prompt: true },
+    { prompt: [] },
+    { prompt: {} },
+  ]) {
+    assert.equal(
+      promptSchema.safeParse(input).success,
+      false,
+      `Expected ${JSON.stringify(input)} to be rejected`,
+    );
   }
 });
+
+test("rejects unexpected prompt fields", () => {
+  assert.equal(
+    promptSchema.safeParse({
+      prompt: "Build a website",
+      extra: true,
+    }).success,
+    false,
+  );
+});
+
+/* =========================
+   PROJECT CREATION
+========================= */
 
 test("creates a project with the default description", () => {
   const result = createProjectSchema.safeParse({
@@ -94,12 +124,71 @@ test("trims project name, description, and initial prompt", () => {
   }
 });
 
-test("validates project name length boundaries", () => {
-  for (const name of ["A", "A".repeat(81), ""]) {
+test("accepts an explicitly empty description", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    description: "",
+    initialPrompt: "Create a cafe website",
+  });
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "");
+  }
+});
+
+test("rejects non-string project fields", () => {
+  const validProject = {
+    name: "Cafe",
+    initialPrompt: "Create a cafe website",
+  };
+
+  for (const name of [null, 123, true, []]) {
     assert.equal(
       createProjectSchema.safeParse({
+        ...validProject,
         name,
-        initialPrompt: "Create a cafe website",
+      }).success,
+      false,
+    );
+  }
+
+  for (const description of [null, 123, true, []]) {
+    assert.equal(
+      createProjectSchema.safeParse({
+        ...validProject,
+        description,
+      }).success,
+      false,
+    );
+  }
+
+  for (const initialPrompt of [null, 123, true, []]) {
+    assert.equal(
+      createProjectSchema.safeParse({
+        ...validProject,
+        initialPrompt,
+      }).success,
+      false,
+    );
+  }
+});
+
+/* =========================
+   PROJECT NAME BOUNDARIES
+========================= */
+
+test("validates project name length boundaries", () => {
+  const base = {
+    initialPrompt: "Create a cafe website",
+  };
+
+  for (const name of ["", "A", "A".repeat(81)]) {
+    assert.equal(
+      createProjectSchema.safeParse({
+        ...base,
+        name,
       }).success,
       false,
       `Expected project name of length ${name.length} to be rejected`,
@@ -109,8 +198,8 @@ test("validates project name length boundaries", () => {
   for (const name of ["AB", "A".repeat(80)]) {
     assert.equal(
       createProjectSchema.safeParse({
+        ...base,
         name,
-        initialPrompt: "Create a cafe website",
       }).success,
       true,
       `Expected project name of length ${name.length} to be accepted`,
@@ -118,16 +207,40 @@ test("validates project name length boundaries", () => {
   }
 });
 
-test("validates initial prompt length boundaries", () => {
-  const base = { name: "Cafe" };
+test("rejects whitespace-only project names", () => {
+  for (const name of [" ", "   ", "\t\n"]) {
+    assert.equal(
+      createProjectSchema.safeParse({
+        name,
+        initialPrompt: "Create a cafe website",
+      }).success,
+      false,
+    );
+  }
+});
 
-  for (const initialPrompt of ["", "short", "a".repeat(9)]) {
+/* =========================
+   INITIAL PROMPT BOUNDARIES
+========================= */
+
+test("validates initial prompt length boundaries", () => {
+  const base = {
+    name: "Cafe",
+  };
+
+  for (const initialPrompt of [
+    "",
+    "short",
+    "a".repeat(9),
+    " ".repeat(10),
+  ]) {
     assert.equal(
       createProjectSchema.safeParse({
         ...base,
         initialPrompt,
       }).success,
       false,
+      `Expected initial prompt of length ${initialPrompt.length} to be rejected`,
     );
   }
 
@@ -141,6 +254,7 @@ test("validates initial prompt length boundaries", () => {
         initialPrompt,
       }).success,
       true,
+      `Expected initial prompt of length ${initialPrompt.length} to be accepted`,
     );
   }
 
@@ -152,6 +266,10 @@ test("validates initial prompt length boundaries", () => {
     false,
   );
 });
+
+/* =========================
+   DESCRIPTION BOUNDARIES
+========================= */
 
 test("validates description length boundaries", () => {
   const base = {
@@ -178,23 +296,23 @@ test("validates description length boundaries", () => {
   );
 });
 
-test("rejects whitespace-only project names and initial prompts", () => {
-  assert.equal(
-    createProjectSchema.safeParse({
-      name: "   ",
-      initialPrompt: "Create a cafe website",
-    }).success,
-    false,
-  );
+test("trims whitespace around descriptions", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+    description: "   Cafe website   ",
+    initialPrompt: "Create a cafe website",
+  });
 
-  assert.equal(
-    createProjectSchema.safeParse({
-      name: "Cafe",
-      initialPrompt: "          ",
-    }).success,
-    false,
-  );
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "Cafe website");
+  }
 });
+
+/* =========================
+   REQUIRED FIELDS
+========================= */
 
 test("rejects missing required project fields", () => {
   assert.equal(
@@ -208,22 +326,49 @@ test("rejects missing required project fields", () => {
     }).success,
     false,
   );
-});
 
-test("rejects unexpected fields", () => {
   assert.equal(
-    promptSchema.safeParse({
-      prompt: "Build a website",
-      extra: true,
+    createProjectSchema.safeParse({
+      initialPrompt: "Create a cafe website",
     }).success,
     false,
   );
+});
 
+test("rejects whitespace-only initial prompts", () => {
+  for (const initialPrompt of [" ", "   ", "\t\n"]) {
+    assert.equal(
+      createProjectSchema.safeParse({
+        name: "Cafe",
+        initialPrompt,
+      }).success,
+      false,
+    );
+  }
+});
+
+/* =========================
+   STRICT OBJECT VALIDATION
+========================= */
+
+test("rejects unexpected project fields", () => {
   assert.equal(
     createProjectSchema.safeParse({
       name: "Cafe",
       initialPrompt: "Create a cafe website",
       extra: true,
+    }).success,
+    false,
+  );
+});
+
+test("rejects unexpected fields even when valid fields are present", () => {
+  assert.equal(
+    createProjectSchema.safeParse({
+      name: "Cafe",
+      description: "",
+      initialPrompt: "Create a cafe website",
+      userId: "123",
     }).success,
     false,
   );
