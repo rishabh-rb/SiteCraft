@@ -28,9 +28,12 @@ assert.equal(
 assert.match(
   request.headers.get("Content-Type") ?? "",
   /application\/json/i,
+  `Request ${index + 1} should use JSON content type`,
 );
 
 assert.match(
   request.headers.get("Accept") ?? "",
   /application\/json/i,
+  `Request ${index + 1} should accept JSON responses`,
 );
+  
