@@ -1,15 +1,15 @@
 import { z } from "zod";
 
 export const PageSchema = z.object({
-  name: z.string().min(1).max(80),
-  slug: z.string().min(1).max(120),
-  pageType: z.string().min(1).max(80),
+  name: z.string().trim().min(1).max(80),
+  slug: z.string().trim().min(1).max(120),
+  pageType: z.string().trim().min(1).max(80),
   sections: z.array(z.string().min(1).max(80)).max(20),
 });
 
 export const PlanSchema = z.object({
-  siteName: z.string().min(1).max(120),
-  siteDescription: z.string().min(1).max(500),
+  siteName: z.string().trim().min(1).max(120),
+  siteDescription: z.string().trim().min(1).max(500),
   pages: z.array(PageSchema).min(1).max(12),
   theme: z.string().min(1).max(80),
   colorPalette: z.object({
