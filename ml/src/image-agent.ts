@@ -163,13 +163,17 @@ function isHttpUrl(value: string | undefined): value is string {
   return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
+function cloneAssets(assets: ImageAsset[]): ImageAsset[] {
+  return assets.map((asset) => ({ ...asset }));
+}
+
 export async function generateImages(prompt: string, plan: WebsitePlan, accessKey?: string): Promise<ImageAsset[]> {
   const category = detectCategory(prompt, plan);
   const fallbackAssets = CURATED_TOPIC_IMAGES[category] || CURATED_TOPIC_IMAGES.default;
   const normalizedAccessKey = accessKey?.trim();
 
   if (!normalizedAccessKey) {
-    return fallbackAssets;
+    return cloneAssets(fallbackAssets);
   }
 
   try {
@@ -190,7 +194,7 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
 
     if (!response.ok) {
       console.warn(`Unsplash API returned status ${response.status}, using curated fallback images.`);
-      return fallbackAssets;
+      return cloneAssets(fallbackAssets);
     }
 
     const data = (await response.json()) as {
@@ -202,7 +206,7 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
     };
 
     if (!data.results || data.results.length === 0) {
-      return fallbackAssets;
+      return cloneAssets(fallbackAssets);
     }
 
     const kinds = ["hero", "feature-1", "feature-2", "about"];
@@ -214,6 +218,6 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
     }));
   } catch (error) {
     console.warn("Unsplash API fetch failed, falling back to curated assets:", error);
-    return fallbackAssets;
+    return cloneAssets(fallbackAssets);
   }
 }
