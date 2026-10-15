@@ -6,8 +6,26 @@ import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 
 /* =========================================================
-   Test Data
+   Types and Test Data
 ========================================================= */
+
+type JsonObject = Record<string, unknown>;
+
+type PipelineResponse = {
+  plan: typeof plan;
+  content: typeof content;
+  design: typeof design;
+  code: typeof code;
+  qa: typeof qa;
+};
+
+const NVIDIA_BASE_URL =
+  "https://integrate.api.nvidia.com/v1";
+
+const NVIDIA_API_KEY = "nvidia-key";
+
+const NVIDIA_MODEL =
+  "qwen/qwen3-coder-480b-a35b-instruct";
 
 const plan = {
   siteName: "Northstar Studio",
@@ -32,7 +50,8 @@ const plan = {
 const content = {
   hero: {
     title: "Design Beyond Limits",
-    subtitle: "Creative digital experiences for modern brands.",
+    subtitle:
+      "Creative digital experiences for modern brands.",
     primaryCta: "Get Started",
     secondaryCta: "Explore Work",
   },
@@ -90,7 +109,8 @@ const code = {
   files: [
     {
       path: "src/index.tsx",
-      content: "export default function App() { return <main><h1>Northstar Studio</h1></main>; }",
+      content:
+        "export default function App() { return <main><h1>Northstar Studio</h1></main>; }",
     },
     {
       path: "README.md",
@@ -108,7 +128,7 @@ const code = {
           },
         },
         null,
-        2
+        2,
       ),
     },
   ],
@@ -126,29 +146,77 @@ const qa = {
   issues: [],
 };
 
-/* =========================================================
-   Mock Provider Responses
-========================================================= */
-
-const responses = [plan, content, design, code, qa];
+const responses: PipelineResponse[] = [
+  { plan, content, design, code, qa },
+].flatMap((response) => [
+  { plan: response.plan } as PipelineResponse,
+  { content: response.content } as PipelineResponse,
+  { design: response.design } as PipelineResponse,
+  { code: response.code } as PipelineResponse,
+  { qa: response.qa } as PipelineResponse,
+]);
 
 /* =========================================================
    Helpers
 ========================================================= */
 
 function createMockFetch(
-  mockResponses: unknown[]
+  mockResponses: unknown[],
 ): typeof fetch {
   let responseIndex = 0;
 
-  return (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+  return (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
     assert.ok(
       responseIndex < mockResponses.length,
-      "Unexpected extra provider request"
+      "Unexpected extra NVIDIA provider request",
     );
 
+    const requestUrl = new URL(String(input));
+    const requestHeaders = new Headers(init?.headers);
+
+    const currentIndex = responseIndex;
     const responseBody = mockResponses[responseIndex];
+
     responseIndex++;
+
+    assert.equal(
+      requestUrl.origin,
+      new URL(NVIDIA_BASE_URL).origin,
+      `Request ${currentIndex + 1} should use the configured NVIDIA base URL`,
+    );
+
+    assert.equal(
+      requestUrl.pathname,
+      `${new URL(NVIDIA_BASE_URL).pathname}/chat/completions`,
+      `Request ${currentIndex + 1} should target chat completions`,
+    );
+
+    assert.equal(
+      init?.method,
+      "POST",
+      `Request ${currentIndex + 1} should use POST`,
+    );
+
+    assert.equal(
+      requestHeaders.get("Authorization"),
+      `Bearer ${NVIDIA_API_KEY}`,
+      `Request ${currentIndex + 1} should contain the NVIDIA API key`,
+    );
+
+    assert.match(
+      requestHeaders.get("Content-Type") ?? "",
+      /application\/json/i,
+      `Request ${currentIndex + 1} should use JSON content type`,
+    );
+
+    assert.match(
+      requestHeaders.get("Accept") ?? "",
+      /application\/json/i,
+      `Request ${currentIndex + 1} should accept JSON responses`,
+    );
 
     return new Response(
       JSON.stringify({
@@ -165,13 +233,13 @@ function createMockFetch(
         headers: {
           "Content-Type": "application/json",
         },
-      }
+      },
     );
   }) as typeof fetch;
 }
 
 function restoreEnvironment(
-  originalEnv: NodeJS.ProcessEnv
+  originalEnv: NodeJS.ProcessEnv,
 ): void {
   for (const key of Object.keys(process.env)) {
     if (!(key in originalEnv)) {
@@ -188,148 +256,231 @@ function restoreEnvironment(
   }
 }
 
+function assertJsonEqual(
+  actual: unknown,
+  expected: unknown,
+  message: string,
+): void {
+  assert.deepStrictEqual(actual, expected, message);
+}
+
 /* =========================================================
    End-to-End Pipeline Test
 ========================================================= */
 
-test("runs the AI-backed generation pipeline end to end", async () => {
-  const tempDir = await mkdtemp(
-    path.join(os.tmpdir(), "sitecraft-pipeline-")
-  );
+test(
+  "runs the AI-backed generation pipeline end to end",
+  async () => {
+    const tempDir = await mkdtemp(
+      path.join(os.tmpdir(), "sitecraft-pipeline-"),
+    );
 
-  const originalEnv = { ...process.env };
-  const originalFetch = globalThis.fetch;
+    const originalEnv = { ...process.env };
+    const originalFetch = globalThis.fetch;
 
-  try {
-    /* Configure isolated test environment */
+    try {
+      /* Configure an isolated environment */
 
-    process.env.SITECRAFT_DATA_DIR = tempDir;
+      process.env.SITECRAFT_DATA_DIR = tempDir;
 
-    process.env.NVIDIA_API_KEY = "nvidia-key";
-    process.env.NVIDIA_BASE_URL =
-      "https://integrate.api.nvidia.com/v1";
-    process.env.NVIDIA_MODEL =
-      "qwen/qwen3-coder-480b-a35b-instruct";
+      process.env.NVIDIA_API_KEY = NVIDIA_API_KEY;
+      process.env.NVIDIA_BASE_URL = NVIDIA_BASE_URL;
+      process.env.NVIDIA_MODEL = NVIDIA_MODEL;
 
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.GEMINI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.OPENAI_API_KEY;
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
 
-    /* Configure mock provider */
+      /* Install one persistent mock */
 
-    let providerCalls = 0;
+      let providerCalls = 0;
 
-    globalThis.fetch = (async (
-      input: RequestInfo | URL,
-      init?: RequestInit
-    ) => {
-      providerCalls++;
+      const mockFetch = createMockFetch([
+        plan,
+        content,
+        design,
+        code,
+        qa,
+      ]);
 
-      const response = await createMockFetch(responses)(
-        input,
-        init
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        providerCalls++;
+
+        return mockFetch(input, init);
+      }) as typeof fetch;
+
+      /*
+       * Import after environment configuration.
+       * This helps when modules read configuration at
+       * initialization time, provided they are not cached.
+       */
+
+      const store = await import("./store.js");
+      const orchestrator = await import("./orchestrator.js");
+
+      /* Create a project */
+
+      const project = await store.createProject({
+        name: "Northstar Studio",
+        description: "A creative studio website",
+        initialPrompt:
+          "Build a modern and responsive website for a creative studio.",
+      });
+
+      assert.ok(project, "Project should be created");
+      assert.ok(project.id, "Project should have an ID");
+
+      /* Execute the generation pipeline */
+
+      const result = await orchestrator.generateProject(
+        project.id,
       );
 
-      return response;
-    }) as typeof fetch;
+      assert.ok(result, "Pipeline should return a result");
 
-    /*
-     * Import after environment configuration.
-     * This helps modules that read environment variables
-     * during initialization.
-     */
+      /* Verify provider calls */
 
-    const storeModule = await import("./store.js");
-    const orchestratorModule = await import("./orchestrator.js");
+      assert.equal(
+        providerCalls,
+        5,
+        "Pipeline should make exactly five provider requests",
+      );
 
-    const store = storeModule;
-    const orchestrator = orchestratorModule;
+      /* Verify generated plan */
 
-    /* Create a project */
+      assertJsonEqual(
+        result.plan,
+        plan,
+        "Generated plan should match the provider response",
+      );
 
-    const project = await store.createProject({
-      name: "Northstar Studio",
-      description: "A creative studio website",
-      initialPrompt:
-        "Build a modern and responsive website for a creative studio.",
-    });
+      /* Verify generated content */
 
-    assert.ok(project, "Project should be created");
-    assert.ok(project.id, "Project should have an ID");
+      assertJsonEqual(
+        result.content,
+        content,
+        "Generated content should match the provider response",
+      );
 
-    /* Run the generation pipeline */
+      /* Verify generated design */
 
-    const result = await orchestrator.generateProject(project.id);
+      assertJsonEqual(
+        result.design,
+        design,
+        "Generated design should match the provider response",
+      );
 
-    assert.ok(result, "Pipeline should return a result");
+      /* Verify generated code */
 
-    /* Verify provider calls */
+      assertJsonEqual(
+        result.code,
+        code,
+        "Generated code should match the provider response",
+      );
 
-    assert.equal(
-      providerCalls,
-      responses.length,
-      "Pipeline should make one request for each generation stage"
-    );
+      /* Verify quality assurance */
 
-    /* Verify generated result */
+      assertJsonEqual(
+        result.qa,
+        qa,
+        "QA result should match the provider response",
+      );
 
-    assert.equal(result.plan.siteName, plan.siteName);
-    assert.equal(result.content.hero.title, content.hero.title);
-    assert.equal(result.design.layout, design.layout);
-    assert.equal(result.code.html, code.html);
-    assert.equal(result.qa.passed, true);
-    assert.equal(result.qa.score, 98);
-    assert.deepEqual(result.qa.issues, []);
+      assert.equal(result.qa.passed, true);
+      assert.equal(result.qa.score, 98);
+      assert.deepStrictEqual(result.qa.issues, []);
 
-    /* Verify generated files */
+      /* Verify generated files */
 
-    assert.ok(Array.isArray(result.code.files));
-    assert.equal(result.code.files.length, code.files.length);
+      assert.ok(
+        Array.isArray(result.code.files),
+        "Generated files should be an array",
+      );
 
-    assert.deepEqual(
-      result.code.files.map((file: { path: string }) => file.path),
-      code.files.map((file) => file.path)
-    );
+      assert.equal(
+        result.code.files.length,
+        code.files.length,
+      );
 
-    assert.ok(Array.isArray(result.code.assets));
-    assert.equal(
-      result.code.assets.length,
-      code.assets.length
-    );
+      assert.deepStrictEqual(
+        result.code.files.map(
+          (file: { path: string }) => file.path,
+        ),
+        code.files.map((file) => file.path),
+      );
 
-    /* Verify saved project */
+      assert.ok(
+        Array.isArray(result.code.assets),
+        "Generated assets should be an array",
+      );
 
-    const storedProject = await store.getProject(project.id);
+      assert.equal(
+        result.code.assets.length,
+        code.assets.length,
+      );
 
-    assert.ok(storedProject, "Generated project should be stored");
+      /* Verify persisted project */
 
-    assert.equal(storedProject.id, project.id);
+      const storedProject = await store.getProject(
+        project.id,
+      );
 
-    assert.equal(
-      storedProject.status,
-      "completed",
-      "Project status should be completed"
-    );
+      assert.ok(
+        storedProject,
+        "Generated project should be stored",
+      );
 
-    assert.deepEqual(storedProject.plan, result.plan);
-    assert.deepEqual(storedProject.content, result.content);
-    assert.deepEqual(storedProject.design, result.design);
-    assert.deepEqual(storedProject.code, result.code);
-    assert.deepEqual(storedProject.qa, result.qa);
-  } finally {
-    /* Restore global fetch */
+      assert.equal(storedProject.id, project.id);
 
-    globalThis.fetch = originalFetch;
+      assert.equal(
+        storedProject.status,
+        "completed",
+        "Project status should be completed",
+      );
 
-    /* Restore environment variables */
+      assertJsonEqual(
+        storedProject.plan,
+        result.plan,
+        "Stored plan should match the generated plan",
+      );
 
-    restoreEnvironment(originalEnv);
+      assertJsonEqual(
+        storedProject.content,
+        result.content,
+        "Stored content should match generated content",
+      );
 
-    /* Remove temporary test data */
+      assertJsonEqual(
+        storedProject.design,
+        result.design,
+        "Stored design should match generated design",
+      );
 
-    await rm(tempDir, {
-      recursive: true,
-      force: true,
-    });
-  }
-});
+      assertJsonEqual(
+        storedProject.code,
+        result.code,
+        "Stored code should match generated code",
+      );
+
+      assertJsonEqual(
+        storedProject.qa,
+        result.qa,
+        "Stored QA should match generated QA",
+      );
+    } finally {
+      /* Restore global state even if an assertion fails */
+
+      globalThis.fetch = originalFetch;
+
+      restoreEnvironment(originalEnv);
+
+      await rm(tempDir, {
+        recursive: true,
+        force: true,
+      });
+    }
+  },
+);
