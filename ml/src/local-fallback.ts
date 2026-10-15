@@ -2,7 +2,7 @@ import type { CodeBundle, ContentBundle, DesignSystem, WebsitePlan } from "./typ
 import { createFiles, renderHtml } from "./generator.js";
 
 function cleanTitle(value: string): string {
-  const words = value.replace(/create|a|an|modern|responsive|editable|website|site|for|using|with|dark|light|theme|blue|purple|accent|accents|colors|color/gi, " ")
+  const words = value.replace(/\b(create|a|an|modern|responsive|editable|website|site|for|using|with|dark|light|theme|blue|purple|accent|accents|colors|color)\b/gi, " ")
     .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "")
     .replace(/\s+/g, " ")
     .trim();
