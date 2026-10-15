@@ -1,8 +1,10 @@
+
 "use client";
 
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -49,6 +51,13 @@ interface AgentMeta {
   icon: ComponentType<{ className?: string }>;
 }
 
+interface PipelineItem {
+  agentKey: string;
+  index: number;
+  stepGen?: GenerationStep;
+  status: AgentStatus;
+}
+
 const PIPELINE_AGENTS = [
   "planner",
   "content",
@@ -63,7 +72,8 @@ const AGENT_META: Record<string, AgentMeta> = {
     shortLabel: "Planning",
     description:
       "Analyzes the prompt and creates the site structure, pages, theme, and feature roadmap.",
-    detail: "Understanding requirements and building the project blueprint",
+    detail:
+      "Understanding requirements and building the project blueprint",
     icon: Sparkles,
   },
   content: {
@@ -108,18 +118,51 @@ const FALLBACK_AGENT: AgentMeta = {
   icon: Sparkles,
 };
 
+const LANGUAGE_MAP: Record<string, string> = {
+  ts: "TypeScript",
+  tsx: "TSX",
+  js: "JavaScript",
+  jsx: "JSX",
+  mjs: "JavaScript",
+  cjs: "JavaScript",
+  css: "CSS",
+  scss: "SCSS",
+  html: "HTML",
+  htm: "HTML",
+  json: "JSON",
+  md: "Markdown",
+  mdx: "MDX",
+  py: "Python",
+  sql: "SQL",
+  yaml: "YAML",
+  yml: "YAML",
+  svg: "SVG",
+  xml: "XML",
+  sh: "Shell",
+  bash: "Shell",
+  tsx: "TSX",
+  vue: "Vue",
+  svelte: "Svelte",
+  prisma: "Prisma",
+  env: "Environment",
+};
+
 function getAgentMeta(agentKey: string): AgentMeta {
   return (
     AGENT_META[agentKey] ?? {
       ...FALLBACK_AGENT,
-      label: agentKey,
+      label: agentKey
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" "),
       shortLabel: agentKey,
     }
   );
 }
 
 function getFileName(path: string): string {
-  return path.split("/").pop() || path;
+  return path.split(/[\\/]/).pop() || path;
 }
 
 function getLanguage(path: string): string {
@@ -128,38 +171,15 @@ function getLanguage(path: string): string {
   const extension =
     dotIndex > 0
       ? fileName.slice(dotIndex + 1).toLowerCase()
-      : "";
+      : fileName.toLowerCase();
 
-  const languages: Record<string, string> = {
-    ts: "TypeScript",
-    tsx: "TSX",
-    js: "JavaScript",
-    jsx: "JSX",
-    mjs: "JavaScript",
-    cjs: "JavaScript",
-    css: "CSS",
-    scss: "SCSS",
-    html: "HTML",
-    htm: "HTML",
-    json: "JSON",
-    md: "Markdown",
-    mdx: "MDX",
-    py: "Python",
-    sql: "SQL",
-    yaml: "YAML",
-    yml: "YAML",
-    svg: "SVG",
-    xml: "XML",
-  };
-
-  return languages[extension] ?? "Code";
+  return LANGUAGE_MAP[extension] ?? "Code";
 }
 
 function formatDuration(duration: unknown): string | null {
-  if (
-    typeof duration === "number" &&
-    Number.isFinite(duration)
-  ) {
+  if (typeof duration === "number" && Number.isFinite(duration)) {
+    if (duration < 0) return null;
+
     return duration >= 1000
       ? `${(duration / 1000).toFixed(1)}s`
       : `${Math.round(duration)}ms`;
@@ -172,11 +192,20 @@ function formatDuration(duration: unknown): string | null {
   return null;
 }
 
+function safeSerialize(value: unknown): string {
+  try {
+    const result = JSON.stringify(value, null, 2);
+    return result ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function getStatus(
   step: GenerationStep | undefined,
   index: number,
   generationsByAgent: Map<string, GenerationStep>,
-  working: boolean
+  working: boolean,
 ): AgentStatus {
   if (step?.status === "completed") {
     return "completed";
@@ -190,29 +219,18 @@ function getStatus(
     return "pending";
   }
 
-  const previousAgents = PIPELINE_AGENTS.slice(0, index);
-
-  const previousStagesCompleted = previousAgents.every(
+  const previousStagesCompleted = PIPELINE_AGENTS.slice(0, index).every(
     (agent) =>
-      generationsByAgent.get(agent)?.status === "completed"
+      generationsByAgent.get(agent)?.status === "completed",
   );
 
   return previousStagesCompleted ? "running" : "pending";
 }
 
-function safeSerialize(value: unknown): string {
-  try {
-    const result = JSON.stringify(value, null, 2);
-    return result ?? String(value);
-  } catch {
-    return String(value);
-  }
-}
-
 function getOutput(
   agentKey: string,
   website?: GeneratedWebsite,
-  step?: GenerationStep
+  step?: GenerationStep,
 ): unknown {
   switch (agentKey) {
     case "planner":
@@ -259,8 +277,10 @@ function StatusBadge({ status }: { status: AgentStatus }) {
   const styles: Record<AgentStatus, string> = {
     completed:
       "border-emerald-200 bg-emerald-50 text-emerald-700",
-    running: "border-teal/20 bg-teal/10 text-teal",
-    pending: "border-line bg-ink/[0.025] text-ink/35",
+    running:
+      "border-teal/20 bg-teal/10 text-teal",
+    pending:
+      "border-line bg-ink/[0.025] text-ink/35",
   };
 
   return (
@@ -311,21 +331,169 @@ function SectionHeading({
   );
 }
 
+function OutputPanel({
+  agentKey,
+  output,
+  status,
+  meta,
+}: {
+  agentKey: string;
+  output: unknown;
+  status: AgentStatus;
+  meta: AgentMeta;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const serializedOutput = useMemo(
+    () => safeSerialize(output),
+    [output],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        clearTimeout(copyTimerRef.current);
+      }
+
+      if (errorTimerRef.current !== null) {
+        clearTimeout(errorTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    if (output === null || output === undefined) return;
+
+    if (copyTimerRef.current !== null) {
+      clearTimeout(copyTimerRef.current);
+    }
+
+    if (errorTimerRef.current !== null) {
+      clearTimeout(errorTimerRef.current);
+    }
+
+    setCopied(false);
+    setCopyFailed(false);
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+
+      await navigator.clipboard.writeText(serializedOutput);
+      setCopied(true);
+
+      copyTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 1600);
+    } catch {
+      setCopyFailed(true);
+
+      errorTimerRef.current = setTimeout(() => {
+        setCopyFailed(false);
+        errorTimerRef.current = null;
+      }, 2200);
+    }
+  }, [output, serializedOutput]);
+
+  const hasOutput = output !== null && output !== undefined;
+
+  return (
+    <div className="border-t border-line">
+      <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-[#101010] px-3 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-teal/10">
+            <Terminal className="h-2.5 w-2.5 text-teal" />
+          </div>
+
+          <div className="min-w-0">
+            <p className="truncate text-[8px] font-black uppercase tracking-wider text-white/70">
+              Agent Output
+            </p>
+            <p className="truncate font-mono text-[7px] text-white/30">
+              {agentKey}
+            </p>
+          </div>
+        </div>
+
+        {hasOutput && (
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[8px] font-bold text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
+            aria-label={`Copy ${meta.label} output`}
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3 text-teal" />
+                Copied
+              </>
+            ) : copyFailed ? (
+              <>
+                <AlertTriangle className="h-3 w-3 text-rose-400" />
+                Failed
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" />
+                Copy
+              </>
+            )}
+          </button>
+        )}
+      </div>
+
+      <div className="max-h-72 overflow-auto bg-[#0b0b0b]">
+        {hasOutput ? (
+          <>
+            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-white/[0.04] bg-[#0b0b0b]/95 px-3 py-1.5 backdrop-blur">
+              <CircleDot className="h-2.5 w-2.5 text-teal/70" />
+              <span className="font-mono text-[7px] text-white/30">
+                output.json
+              </span>
+            </div>
+
+            <pre className="whitespace-pre-wrap break-words px-3 py-3 font-mono text-[9px] leading-[1.7] text-white/65">
+              {serializedOutput}
+            </pre>
+          </>
+        ) : (
+          <div className="flex min-h-24 items-center justify-center px-4">
+            <div className="text-center">
+              {status === "running" ? (
+                <Loader2 className="mx-auto h-4 w-4 animate-spin text-teal/60 motion-reduce:animate-none" />
+              ) : (
+                <Clock3 className="mx-auto h-4 w-4 text-white/20" />
+              )}
+
+              <p className="mt-2 text-[8px] text-white/35">
+                {status === "running"
+                  ? "Agent is processing. Output will appear when available."
+                  : "No output available for this stage yet."}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function GenerationProgress({
   generations,
   website,
   working,
 }: GenerationProgressProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(
-    null
-  );
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [copyErrorId, setCopyErrorId] = useState<string | null>(
-    null
-  );
-
-  const copyTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idPrefix = useId();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const generationsByAgent = useMemo(() => {
     const map = new Map<string, GenerationStep>();
@@ -337,7 +505,7 @@ export function GenerationProgress({
     return map;
   }, [generations]);
 
-  const pipeline = useMemo(
+  const pipeline = useMemo<PipelineItem[]>(
     () =>
       PIPELINE_AGENTS.map((agentKey, index) => {
         const stepGen = generationsByAgent.get(agentKey);
@@ -350,26 +518,29 @@ export function GenerationProgress({
             stepGen,
             index,
             generationsByAgent,
-            working
+            working,
           ),
         };
       }),
-    [generationsByAgent, working]
+    [generationsByAgent, working],
   );
 
-  const completedCount = pipeline.filter(
-    (item) => item.status === "completed"
-  ).length;
+  const completedCount = useMemo(
+    () =>
+      pipeline.filter((item) => item.status === "completed").length,
+    [pipeline],
+  );
 
   const progressPercentage = Math.round(
-    (completedCount / PIPELINE_AGENTS.length) * 100
+    (completedCount / PIPELINE_AGENTS.length) * 100,
   );
 
   const currentAgent = pipeline.find(
-    (item) => item.status === "running"
+    (item) => item.status === "running",
   );
 
-  const hasStarted = generations.length > 0 || Boolean(website);
+  const hasStarted =
+    generations.length > 0 || Boolean(website);
 
   const isComplete =
     !working &&
@@ -380,74 +551,24 @@ export function GenerationProgress({
   const qa = website?.qa;
   const qaIssues = qa?.issues ?? [];
 
-  const rawQaScore = qa?.score;
   const qaScore =
-    typeof rawQaScore === "number" &&
-    Number.isFinite(rawQaScore)
-      ? Math.min(100, Math.max(0, rawQaScore))
+    typeof qa?.score === "number" && Number.isFinite(qa.score)
+      ? Math.min(100, Math.max(0, qa.score))
       : 0;
 
-  const clearCopyTimer = useCallback(() => {
-    if (copyTimerRef.current !== null) {
-      clearTimeout(copyTimerRef.current);
-      copyTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => clearCopyTimer();
-  }, [clearCopyTimer]);
-
-  const toggleExpand = useCallback((id: string) => {
+  const toggleExpand = useCallback((agentKey: string) => {
     setExpandedId((previous) =>
-      previous === id ? null : id
+      previous === agentKey ? null : agentKey,
     );
   }, []);
-
-  const copyOutput = useCallback(
-    async (agentKey: string, output: unknown) => {
-      if (output == null) return;
-
-      clearCopyTimer();
-
-      try {
-        if (!navigator.clipboard?.writeText) {
-          throw new Error("Clipboard API unavailable");
-        }
-
-        await navigator.clipboard.writeText(
-          safeSerialize(output)
-        );
-
-        setCopiedId(agentKey);
-        setCopyErrorId(null);
-
-        copyTimerRef.current = setTimeout(() => {
-          setCopiedId((current) =>
-            current === agentKey ? null : current
-          );
-          copyTimerRef.current = null;
-        }, 1600);
-      } catch {
-        setCopiedId(null);
-        setCopyErrorId(agentKey);
-
-        copyTimerRef.current = setTimeout(() => {
-          setCopyErrorId((current) =>
-            current === agentKey ? null : current
-          );
-          copyTimerRef.current = null;
-        }, 2200);
-      }
-    },
-    [clearCopyTimer]
-  );
 
   return (
     <section
       className="overflow-hidden rounded-2xl border border-line bg-paper shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
       aria-label="AI generation progress"
+      aria-busy={working}
     >
+      {/* Pipeline header */}
       <div className="border-b border-line bg-paper px-4 py-4 sm:px-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
@@ -469,7 +590,7 @@ export function GenerationProgress({
 
                 {working && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-teal/15 bg-teal/5 px-2 py-0.5 text-[7px] font-black uppercase tracking-wider text-teal">
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-teal" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-teal motion-reduce:animate-none" />
                     Live
                   </span>
                 )}
@@ -531,7 +652,7 @@ export function GenerationProgress({
           <div
             className="relative h-1.5 overflow-hidden rounded-full bg-ink/[0.06]"
             role="progressbar"
-            aria-label="Generation progress"
+            aria-label="Completed generation stages"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progressPercentage}
@@ -556,7 +677,7 @@ export function GenerationProgress({
                   item.status === "completed"
                     ? "bg-teal"
                     : item.status === "running"
-                      ? "animate-pulse bg-teal/50"
+                      ? "animate-pulse bg-teal/50 motion-reduce:animate-none"
                       : "bg-ink/[0.08]"
                 }`}
               />
@@ -565,7 +686,11 @@ export function GenerationProgress({
         </div>
 
         {working && currentAgent && (
-          <div className="mt-4 flex items-center gap-3 rounded-xl border border-teal/15 bg-teal/[0.035] px-3 py-2.5">
+          <div
+            className="mt-4 flex items-center gap-3 rounded-xl border border-teal/15 bg-teal/[0.035] px-3 py-2.5"
+            role="status"
+            aria-live="polite"
+          >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-teal motion-reduce:animate-none" />
             </div>
@@ -584,6 +709,7 @@ export function GenerationProgress({
         )}
       </div>
 
+      {/* Agent stages */}
       <div className="px-3 py-3 sm:px-4 sm:py-4">
         <div className="space-y-2">
           {pipeline.map(({ agentKey, index, stepGen, status }) => {
@@ -591,9 +717,10 @@ export function GenerationProgress({
             const Icon = meta.icon;
             const isExpanded = expandedId === agentKey;
             const output = getOutput(agentKey, website, stepGen);
-            const hasOutput = output !== null && output !== undefined;
+            const hasOutput =
+              output !== null && output !== undefined;
             const duration = formatDuration(stepGen?.duration);
-            const outputId = `agent-output-${agentKey}`;
+            const outputId = `${idPrefix}-output-${agentKey}`;
 
             return (
               <article
@@ -696,86 +823,12 @@ export function GenerationProgress({
                 </button>
 
                 {isExpanded && (
-                  <div
-                    id={outputId}
-                    className="border-t border-line"
-                  >
-                    <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-[#101010] px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-teal/10">
-                          <Terminal className="h-2.5 w-2.5 text-teal" />
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="truncate text-[8px] font-black uppercase tracking-wider text-white/70">
-                            Agent Output
-                          </p>
-                          <p className="truncate font-mono text-[7px] text-white/30">
-                            {agentKey}
-                          </p>
-                        </div>
-                      </div>
-
-                      {hasOutput && (
-                        <button
-                          type="button"
-                          onClick={() => void copyOutput(agentKey, output)}
-                          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[8px] font-bold text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
-                          aria-label={`Copy ${meta.label} output`}
-                        >
-                          {copiedId === agentKey ? (
-                            <>
-                              <Check className="h-3 w-3 text-teal" />
-                              Copied
-                            </>
-                          ) : copyErrorId === agentKey ? (
-                            <>
-                              <AlertTriangle className="h-3 w-3 text-rose-400" />
-                              Failed
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              Copy
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="max-h-72 overflow-auto bg-[#0b0b0b]">
-                      {hasOutput ? (
-                        <>
-                          <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-white/[0.04] bg-[#0b0b0b]/95 px-3 py-1.5 backdrop-blur">
-                            <CircleDot className="h-2.5 w-2.5 text-teal/70" />
-                            <span className="font-mono text-[7px] text-white/30">
-                              output.json
-                            </span>
-                          </div>
-
-                          <pre className="whitespace-pre-wrap break-words px-3 py-3 font-mono text-[9px] leading-[1.7] text-white/65">
-                            {safeSerialize(output)}
-                          </pre>
-                        </>
-                      ) : (
-                        <div className="flex min-h-24 items-center justify-center px-4">
-                          <div className="text-center">
-                            {status === "running" ? (
-                              <Loader2 className="mx-auto h-4 w-4 animate-spin text-teal/60 motion-reduce:animate-none" />
-                            ) : (
-                              <Clock3 className="mx-auto h-4 w-4 text-white/20" />
-                            )}
-
-                            <p className="mt-2 text-[8px] text-white/35">
-                              {status === "running"
-                                ? "Agent is processing. Output will appear when available."
-                                : "No output available for this stage yet."}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <OutputPanel
+                    agentKey={agentKey}
+                    output={hasOutput ? output : null}
+                    status={status}
+                    meta={meta}
+                  />
                 )}
               </article>
             );
@@ -783,15 +836,18 @@ export function GenerationProgress({
         </div>
       </div>
 
+      {/* Generated files */}
       {websiteFiles.length > 0 && (
         <div className="border-t border-line px-4 py-3">
           <SectionHeading
             icon={FileCode2}
             title="Generated Project"
-            description={`${websiteFiles.length} source files generated`}
+            description={`${websiteFiles.length} source ${
+              websiteFiles.length === 1 ? "file" : "files"
+            } generated`}
           />
 
-          <div className="mt-3 flex max-h-24 flex-wrap gap-1.5 overflow-auto">
+          <div className="mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-auto">
             {websiteFiles.slice(0, 8).map((file) => (
               <div
                 key={file.path}
@@ -824,12 +880,14 @@ export function GenerationProgress({
 
             <span className="inline-flex items-center gap-1.5 text-[8px] font-semibold text-ink/45">
               <Layers3 className="h-3 w-3" />
-              {websiteFiles.length} files
+              {websiteFiles.length}{" "}
+              {websiteFiles.length === 1 ? "file" : "files"}
             </span>
           </div>
         </div>
       )}
 
+      {/* Quality assurance */}
       {qa && (
         <div className="border-t border-line px-4 py-3 sm:px-5">
           <div
@@ -977,6 +1035,7 @@ export function GenerationProgress({
         </div>
       )}
 
+      {/* Empty state */}
       {!hasStarted && (
         <div className="border-t border-line px-4 py-8">
           <div className="mx-auto max-w-xs text-center">
@@ -996,6 +1055,7 @@ export function GenerationProgress({
         </div>
       )}
 
+      {/* Completion state */}
       {isComplete && (
         <div className="border-t border-emerald-200/60 bg-emerald-50/50 px-4 py-3">
           <div className="flex items-center justify-center gap-2">
