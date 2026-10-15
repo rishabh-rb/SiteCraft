@@ -45,7 +45,9 @@ export function renderHtml(plan: WebsitePlan, design: DesignSystem, content: Con
 
   const sectionImages = [featureImage1, featureImage2, aboutImage].filter(Boolean);
 
-  const sectionsMarkup = content.sections.map((section, idx) => sectionHtml(section, idx, sectionImages[idx % sectionImages.length])).join("");
+  const sectionsMarkup = content.sections
+    .map((section, idx) => sectionHtml(section, idx, sectionImages.length > 0 ? sectionImages[idx % sectionImages.length] : undefined))
+    .join("");
 
   const testimonialsMarkup = content.testimonials.map((item) => `
     <article class="quote-card">
