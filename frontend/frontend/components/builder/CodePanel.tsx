@@ -9,9 +9,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import {
   AlertCircle,
   Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Code2,
   Copy,
   FileCode2,
@@ -103,6 +107,7 @@ function getLanguageLabel(file?: GeneratedFile): string {
   if (file.language) return file.language;
 
   const name = getFileName(file.path).toLowerCase();
+
   const extension =
     name === ".env"
       ? "env"
@@ -113,81 +118,82 @@ function getLanguageLabel(file?: GeneratedFile): string {
   return LANGUAGE_MAP[extension] ?? "Plain Text";
 }
 
-function highlightMatch(line: string, query: string): ReactNode {
-  const trimmedQuery = query.trim();
+async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
 
-  if (!trimmedQuery) return line;
+  const textarea = document.createElement("textarea");
+
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.setAttribute("aria-hidden", "true");
+
+  Object.assign(textarea.style, {
+    position: "fixed",
+    left: "-9999px",
+    top: "0",
+    opacity: "0",
+  });
+
+  document.body.appendChild(textarea);
+
+  try {
+    textarea.select();
+
+    if (!document.execCommand("copy")) {
+      throw new Error("Unable to copy code.");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+function highlightMatch(
+  line: string,
+  query: string
+): ReactNode {
+  const term = query.trim();
+
+  if (!term) return line;
 
   const parts: ReactNode[] = [];
   const lowerLine = line.toLowerCase();
-  const lowerQuery = trimmedQuery.toLowerCase();
+  const lowerTerm = term.toLowerCase();
 
   let cursor = 0;
   let key = 0;
 
   while (cursor < line.length) {
-    const matchIndex = lowerLine.indexOf(lowerQuery, cursor);
+    const index = lowerLine.indexOf(lowerTerm, cursor);
 
-    if (matchIndex === -1) {
+    if (index === -1) {
       parts.push(
-        <span key={key++}>{line.slice(cursor)}</span>,
+        <span key={key++}>{line.slice(cursor)}</span>
       );
       break;
     }
 
-    if (matchIndex > cursor) {
+    if (index > cursor) {
       parts.push(
-        <span key={key++}>
-          {line.slice(cursor, matchIndex)}
-        </span>,
+        <span key={key++}>{line.slice(cursor, index)}</span>
       );
     }
 
     parts.push(
       <mark
         key={key++}
-        className="rounded-sm bg-amber-300/25 text-amber-200"
+        className="rounded-sm bg-amber-300/30 text-amber-200"
       >
-        {line.slice(
-          matchIndex,
-          matchIndex + trimmedQuery.length,
-        )}
-      </mark>,
+        {line.slice(index, index + term.length)}
+      </mark>
     );
 
-    cursor = matchIndex + trimmedQuery.length;
+    cursor = index + term.length;
   }
 
   return parts.length ? parts : line;
-}
-
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.setAttribute("aria-hidden", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  textarea.style.top = "0";
-
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  try {
-    const successful = document.execCommand("copy");
-
-    if (!successful) {
-      throw new Error("Clipboard copy failed");
-    }
-  } finally {
-    textarea.remove();
-  }
 }
 
 export function CodePanel({
@@ -206,8 +212,9 @@ export function CodePanel({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const expandedDialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
+    null
   );
 
   const files = website?.files ?? [];
@@ -216,14 +223,13 @@ export function CodePanel({
     () =>
       files.find((file) => file.path === selectedFile) ??
       files[0],
-    [files, selectedFile],
+    [files, selectedFile]
   );
 
   const codeContent = activeFile?.content ?? "";
-
   const codeLines = useMemo(
     () => codeContent.split("\n"),
-    [codeContent],
+    [codeContent]
   );
 
   const language = getLanguageLabel(activeFile);
@@ -233,7 +239,7 @@ export function CodePanel({
 
   const qaScore = Math.min(
     100,
-    Math.max(0, website?.qa?.score ?? 0),
+    Math.max(0, website?.qa?.score ?? 0)
   );
 
   const qaPassed = website?.qa?.passed ?? false;
@@ -244,19 +250,18 @@ export function CodePanel({
 
     if (!query) return [];
 
-    return codeLines.reduce<SearchResult[]>(
-      (matches, line, index) => {
-        if (line.toLowerCase().includes(query)) {
-          matches.push({
-            line,
-            number: index + 1,
-          });
-        }
+    const matches: SearchResult[] = [];
 
-        return matches;
-      },
-      [],
-    );
+    codeLines.forEach((line, index) => {
+      if (line.toLowerCase().includes(query)) {
+        matches.push({
+          line,
+          number: index + 1,
+        });
+      }
+    });
+
+    return matches;
   }, [codeLines, codeSearch]);
 
   const activeSearchMatch =
@@ -283,18 +288,20 @@ export function CodePanel({
     return () => clearCopyTimer();
   }, [clearCopyTimer]);
 
+  // Keep the selected file valid when generated files change.
   useEffect(() => {
     if (!files.length) return;
 
-    const selectionExists = files.some(
-      (file) => file.path === selectedFile,
+    const exists = files.some(
+      (file) => file.path === selectedFile
     );
 
-    if (!selectionExists) {
+    if (!exists) {
       onSelectFile(files[0].path);
     }
   }, [files, selectedFile, onSelectFile]);
 
+  // Reset file-specific state when switching files.
   useEffect(() => {
     setCodeSearch("");
     setSelectedMatchIndex(0);
@@ -308,15 +315,16 @@ export function CodePanel({
   }, [activeFile?.path, resetCopyFeedback]);
 
   useEffect(() => {
-    if (!codeSearch.trim()) {
-      setSelectedMatchIndex(0);
-      return;
-    }
+    setSelectedMatchIndex(0);
+  }, [codeSearch]);
 
+  useEffect(() => {
     if (selectedMatchIndex >= filteredCode.length) {
-      setSelectedMatchIndex(Math.max(filteredCode.length - 1, 0));
+      setSelectedMatchIndex(
+        Math.max(filteredCode.length - 1, 0)
+      );
     }
-  }, [codeSearch, filteredCode, selectedMatchIndex]);
+  }, [filteredCode.length, selectedMatchIndex]);
 
   const handleCopy = useCallback(async () => {
     if (!activeFile) return;
@@ -366,6 +374,22 @@ export function CodePanel({
     }
   }, [showSearch, closeSearch, openSearch]);
 
+  const moveMatch = useCallback(
+    (direction: number) => {
+      if (!filteredCode.length) return;
+
+      setSelectedMatchIndex((current) => {
+        const next = current + direction;
+
+        if (next < 0) return filteredCode.length - 1;
+        if (next >= filteredCode.length) return 0;
+
+        return next;
+      });
+    },
+    [filteredCode.length]
+  );
+
   useEffect(() => {
     if (!showSearch) return;
 
@@ -376,6 +400,7 @@ export function CodePanel({
     return () => cancelAnimationFrame(frame);
   }, [showSearch]);
 
+  // Keyboard shortcuts.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
@@ -419,6 +444,17 @@ export function CodePanel({
       ) {
         event.preventDefault();
         void handleCopy();
+        return;
+      }
+
+      if (showSearch && !isTyping && event.key === "ArrowDown") {
+        event.preventDefault();
+        moveMatch(1);
+      }
+
+      if (showSearch && !isTyping && event.key === "ArrowUp") {
+        event.preventDefault();
+        moveMatch(-1);
       }
     };
 
@@ -435,17 +471,19 @@ export function CodePanel({
     closeSearch,
     closeExpanded,
     handleCopy,
+    moveMatch,
   ]);
 
+  // Fullscreen editor: restore focus and page scrolling on close.
   useEffect(() => {
     if (!expanded) return;
 
-    const previousOverflow = document.body.style.overflow;
-    const previousActiveElement =
+    previousFocusRef.current =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
 
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     const frame = requestAnimationFrame(() => {
@@ -455,12 +493,13 @@ export function CodePanel({
     return () => {
       document.body.style.overflow = previousOverflow;
       cancelAnimationFrame(frame);
-      previousActiveElement?.focus();
+      previousFocusRef.current?.focus();
     };
   }, [expanded]);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-line bg-paper">
+    <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-line bg-paper">
+      {/* Header */}
       <header className="shrink-0 border-b border-line bg-paper">
         <div className="flex items-center justify-between gap-3 px-3 py-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -481,14 +520,14 @@ export function CodePanel({
                 </h2>
 
                 {activeFile && (
-                  <span className="hidden rounded-full bg-accent/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-accent sm:inline-flex">
+                  <span className="hidden shrink-0 rounded-full bg-accent/10 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-accent sm:inline-flex">
                     Read only
                   </span>
                 )}
               </div>
 
               <p className="mt-0.5 truncate text-[10px] text-ink/45">
-                {files.length > 0
+                {files.length
                   ? `${files.length} ${
                       files.length === 1 ? "file" : "files"
                     } in project`
@@ -502,7 +541,7 @@ export function CodePanel({
               <ToolbarButton
                 onClick={toggleSearch}
                 label={showSearch ? "Close code search" : "Search code"}
-                title="Search code · Ctrl/Cmd + F"
+                title="Search · Ctrl/Cmd + F"
                 active={showSearch}
               >
                 <Search className="h-3.5 w-3.5" />
@@ -520,7 +559,6 @@ export function CodePanel({
               <button
                 type="button"
                 onClick={() => void handleCopy()}
-                disabled={!activeFile}
                 aria-label={
                   copied
                     ? "Code copied"
@@ -528,7 +566,7 @@ export function CodePanel({
                       ? "Copy failed"
                       : "Copy active file"
                 }
-                title="Copy active file · Ctrl/Cmd + Shift + C"
+                title="Copy file · Ctrl/Cmd + Shift + C"
                 className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
                   copied
                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -557,8 +595,9 @@ export function CodePanel({
           )}
         </div>
 
+        {/* Search */}
         {showSearch && activeFile && (
-          <div className="border-t border-line bg-white/40 px-3 py-2.5 sm:px-4">
+          <div className="border-t border-line bg-white/50 px-3 py-3 sm:px-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink/35" />
 
@@ -567,6 +606,12 @@ export function CodePanel({
                 type="search"
                 value={codeSearch}
                 onChange={(event) => setCodeSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    moveMatch(event.shiftKey ? -1 : 1);
+                  }
+                }}
                 placeholder="Search inside code..."
                 aria-label="Search inside active file"
                 aria-describedby="code-search-help"
@@ -581,14 +626,14 @@ export function CodePanel({
                     searchInputRef.current?.focus();
                   }}
                   aria-label="Clear code search"
-                  className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-ink/40 transition-colors hover:bg-ink/[0.05] hover:text-ink"
+                  className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-ink/40 transition hover:bg-ink/[0.05] hover:text-ink"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
 
-            <div className="mt-1.5 flex items-center justify-between gap-2">
+            <div className="mt-2 flex items-center justify-between gap-2">
               <p
                 id="code-search-help"
                 className="text-[9px] font-medium text-ink/45"
@@ -600,16 +645,17 @@ export function CodePanel({
                         ? "matching line"
                         : "matching lines"
                     }`
-                  : "Search is case-insensitive"}
+                  : "Case-insensitive search"}
               </p>
 
-              <kbd className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-[8px] text-ink/45">
-                ESC
-              </kbd>
+              <span className="text-[9px] text-ink/40">
+                Enter: next · Shift+Enter: previous
+              </span>
             </div>
           </div>
         )}
 
+        {/* Quality report */}
         {website?.qa && (
           <div className="px-3 pb-3 pt-1 sm:px-4">
             <section
@@ -689,11 +735,11 @@ export function CodePanel({
 
               {issues.length > 0 ? (
                 <div className="mt-3 border-t border-black/5 pt-2.5">
-                  <p className="mb-1.5 text-[8px] font-bold uppercase tracking-wider text-ink/45">
+                  <p className="mb-2 text-[8px] font-bold uppercase tracking-wider text-ink/45">
                     {issues.length} issue{issues.length === 1 ? "" : "s"} found
                   </p>
 
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     {displayedIssues.map((issue, index) => (
                       <div
                         key={`${issue.message}-${index}`}
@@ -714,11 +760,17 @@ export function CodePanel({
                         setShowAllIssues((previous) => !previous)
                       }
                       aria-expanded={showAllIssues}
-                      className="mt-2 text-[9px] font-semibold text-ink/60 transition hover:text-ink focus:outline-none focus-visible:underline"
+                      className="mt-2 inline-flex items-center gap-1 text-[9px] font-semibold text-ink/60 transition hover:text-ink focus:outline-none focus-visible:underline"
                     >
                       {showAllIssues
                         ? "Show fewer issues"
                         : `Show ${issues.length - 3} more issues`}
+
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${
+                          showAllIssues ? "rotate-180" : ""
+                        }`}
+                      />
                     </button>
                   )}
                 </div>
@@ -737,7 +789,8 @@ export function CodePanel({
         )}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,132px)_minmax(0,1fr)] sm:grid-cols-[180px_minmax(0,1fr)]">
+      {/* File explorer and code editor */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,120px)_minmax(0,1fr)] sm:grid-cols-[180px_minmax(0,1fr)]">
         <div className="min-h-0 min-w-0 overflow-hidden border-r border-line">
           <FileExplorer
             files={files}
@@ -747,6 +800,7 @@ export function CodePanel({
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#101214]">
+          {/* File toolbar */}
           <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-[#17191c] px-2.5 sm:px-3">
             <div className="flex min-w-0 items-center gap-2">
               {activeFile ? (
@@ -779,6 +833,7 @@ export function CodePanel({
             )}
           </div>
 
+          {/* Code area */}
           {activeFile ? (
             <div
               ref={editorRef}
@@ -792,6 +847,8 @@ export function CodePanel({
                   selectedIndex={selectedMatchIndex}
                   onSelectIndex={setSelectedMatchIndex}
                   activeMatch={activeSearchMatch}
+                  onPrevious={() => moveMatch(-1)}
+                  onNext={() => moveMatch(1)}
                 />
               ) : (
                 <>
@@ -807,12 +864,14 @@ export function CodePanel({
             <EmptyCodeState />
           )}
 
+          {/* Editor status */}
           {activeFile && (
-            <footer className="flex h-7 shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-[#17191c] px-3">
+            <footer className="flex h-8 shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-[#17191c] px-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] text-white/40">
                   <Hash className="h-2.5 w-2.5" />
-                  {codeLines.length} {codeLines.length === 1 ? "line" : "lines"}
+                  {codeLines.length}{" "}
+                  {codeLines.length === 1 ? "line" : "lines"}
                 </span>
 
                 <span className="hidden truncate font-mono text-[9px] text-white/30 sm:inline">
@@ -829,6 +888,7 @@ export function CodePanel({
         </div>
       </div>
 
+      {/* Expanded editor */}
       {expanded && activeFile && (
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
@@ -871,7 +931,7 @@ export function CodePanel({
                   type="button"
                   onClick={() => void handleCopy()}
                   aria-label="Copy active file"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-white/60 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
                 >
                   {copied ? (
                     <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -891,7 +951,7 @@ export function CodePanel({
                   onClick={closeExpanded}
                   aria-label="Close expanded editor"
                   title="Close editor · Esc"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/55 transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -921,6 +981,8 @@ export function CodePanel({
   );
 }
 
+/* Toolbar button */
+
 function ToolbarButton({
   children,
   onClick,
@@ -943,7 +1005,7 @@ function ToolbarButton({
       aria-label={label}
       aria-pressed={active}
       title={title}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
         active
           ? "border-accent/20 bg-accent/10 text-accent"
           : "border-transparent text-ink/50 hover:border-line hover:bg-white hover:text-ink"
@@ -953,6 +1015,8 @@ function ToolbarButton({
     </button>
   );
 }
+
+/* Line numbers */
 
 function LineNumbers({
   count,
@@ -977,6 +1041,8 @@ function LineNumbers({
   );
 }
 
+/* Empty state */
+
 function EmptyCodeState() {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
@@ -997,19 +1063,34 @@ function EmptyCodeState() {
   );
 }
 
+/* Search results */
+
 function SearchResults({
   results,
   query,
   selectedIndex,
   onSelectIndex,
   activeMatch,
+  onPrevious,
+  onNext,
 }: {
   results: SearchResult[];
   query: string;
   selectedIndex: number;
   onSelectIndex: (index: number) => void;
   activeMatch: SearchResult | null;
+  onPrevious: () => void;
+  onNext: () => void;
 }) {
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selectedIndex]);
+
   if (!results.length) {
     return (
       <div className="flex min-h-full flex-1 flex-col items-center justify-center px-6 text-center">
@@ -1029,50 +1110,55 @@ function SearchResults({
     );
   }
 
-  const canGoBack = selectedIndex > 0;
-  const canGoForward = selectedIndex < results.length - 1;
-
   return (
-    <div className="min-w-full p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <div className="min-w-full flex-1 p-3 sm:p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <div
-          className="flex items-center gap-2 text-[10px] font-semibold text-white/50"
+          className="flex min-w-0 items-center gap-2 text-[10px] font-semibold text-white/50"
           aria-live="polite"
         >
-          <Search className="h-3 w-3" />
-          {results.length} {results.length === 1 ? "match" : "matches"}
+          <Search className="h-3 w-3 shrink-0" />
+
+          <span>
+            {results.length}{" "}
+            {results.length === 1 ? "match" : "matches"}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            onClick={() => onSelectIndex(Math.max(selectedIndex - 1, 0))}
-            disabled={!canGoBack}
-            className="rounded border border-white/10 bg-white/[0.02] px-2 py-0.5 text-[8px] font-medium text-white/60 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={onPrevious}
             aria-label="Previous match"
+            title="Previous match"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/60 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/50"
           >
-            Prev
+            <ChevronLeft className="h-3.5 w-3.5" />
           </button>
 
-          <button
-            type="button"
-            onClick={() => onSelectIndex(Math.min(selectedIndex + 1, results.length - 1))}
-            disabled={!canGoForward}
-            className="rounded border border-white/10 bg-white/[0.02] px-2 py-0.5 text-[8px] font-medium text-white/60 transition hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label="Next match"
-          >
-            Next
-          </button>
-
-          <span className="rounded-full border border-white/5 bg-white/[0.03] px-2 py-0.5 text-[8px] text-white/40">
+          <span className="min-w-12 text-center font-mono text-[9px] text-white/50">
             {selectedIndex + 1}/{results.length}
           </span>
+
+          <button
+            type="button"
+            onClick={onNext}
+            aria-label="Next match"
+            title="Next match"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-white/60 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/50"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
 
       {activeMatch && (
-        <div className="mb-3 rounded-lg border border-teal/30 bg-teal/10 px-3 py-2 text-[10px] font-medium text-teal-100/90">
-          <span className="font-semibold">Current match:</span> line {activeMatch.number}
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-teal/20 bg-teal/10 px-3 py-2 text-[10px] text-teal-100/90">
+          <Hash className="h-3 w-3 shrink-0" />
+
+          <span>
+            Current match: line {activeMatch.number}
+          </span>
         </div>
       )}
 
@@ -1083,16 +1169,22 @@ function SearchResults({
           return (
             <button
               key={number}
+              ref={isSelected ? selectedRowRef : null}
               type="button"
               onClick={() => onSelectIndex(index)}
-              className={`flex min-w-max w-full border-b border-white/[0.035] text-left last:border-b-0 transition-colors ${
+              aria-current={isSelected ? "true" : undefined}
+              aria-label={`Select match at line ${number}`}
+              className={`flex w-full min-w-max border-b border-white/[0.035] text-left transition-colors last:border-b-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-teal/50 ${
                 isSelected
                   ? "bg-teal/10 hover:bg-teal/15"
                   : "hover:bg-white/[0.035]"
               }`}
-              aria-label={`Jump to line ${number}`}
             >
-              <span className="w-12 shrink-0 select-none border-r border-white/5 px-3 py-1.5 text-right font-mono text-[9px] text-white/40">
+              <span
+                className={`w-12 shrink-0 select-none border-r border-white/5 px-3 py-1.5 text-right font-mono text-[9px] ${
+                  isSelected ? "text-teal-300" : "text-white/40"
+                }`}
+              >
                 {number}
               </span>
 
