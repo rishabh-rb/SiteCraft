@@ -1,82 +1,335 @@
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 
+/* =========================================================
+   Test Data
+========================================================= */
+
+const plan = {
+  siteName: "Northstar Studio",
+  description: "A creative studio website",
+  pages: [
+    {
+      name: "Home",
+      path: "/",
+      purpose: "Landing page",
+    },
+  ],
+  theme: "editorial",
+  colorPalette: {
+    primary: "#111827",
+    secondary: "#F9FAFB",
+    accent: "#6366F1",
+  },
+  font: "Inter",
+  features: ["Responsive design", "Contact form"],
+};
+
+const content = {
+  hero: {
+    title: "Design Beyond Limits",
+    subtitle: "Creative digital experiences for modern brands.",
+    primaryCta: "Get Started",
+    secondaryCta: "Explore Work",
+  },
+  sections: [
+    {
+      title: "Our Services",
+      description: "We build digital experiences.",
+    },
+  ],
+  testimonials: [
+    {
+      name: "Alex Morgan",
+      text: "Excellent work and communication.",
+    },
+  ],
+  faqs: [
+    {
+      question: "What do you do?",
+      answer: "We create digital experiences.",
+    },
+  ],
+  seo: {
+    title: "Northstar Studio",
+    description: "Creative digital studio.",
+  },
+};
+
+const design = {
+  layout: "modern-editorial",
+  componentHierarchy: [
+    "Header",
+    "Hero",
+    "Services",
+    "Testimonials",
+    "FAQ",
+    "Footer",
+  ],
+  tokens: {
+    colors: {
+      primary: "#111827",
+      accent: "#6366F1",
+    },
+    fontFamily: "Inter",
+    borderRadius: "12px",
+  },
+  responsiveRules: [
+    "Mobile-first layout",
+    "Responsive navigation",
+    "Flexible content grids",
+  ],
+};
+
+const code = {
+  html: "<main><h1>Northstar Studio</h1></main>",
+  files: [
+    {
+      path: "src/index.tsx",
+      content: "export default function App() { return <main><h1>Northstar Studio</h1></main>; }",
+    },
+    {
+      path: "README.md",
+      content: "# Northstar Studio",
+    },
+    {
+      path: "package.json",
+      content: JSON.stringify(
+        {
+          name: "northstar-studio",
+          version: "1.0.0",
+          scripts: {
+            dev: "vite",
+            build: "vite build",
+          },
+        },
+        null,
+        2
+      ),
+    },
+  ],
+  assets: [
+    {
+      kind: "illustration",
+      description: "Editorial abstract hero",
+    },
+  ],
+};
+
+const qa = {
+  passed: true,
+  score: 98,
+  issues: [],
+};
+
+/* =========================================================
+   Mock Provider Responses
+========================================================= */
+
+const responses = [plan, content, design, code, qa];
+
+/* =========================================================
+   Helpers
+========================================================= */
+
+function createMockFetch(
+  mockResponses: unknown[]
+): typeof fetch {
+  let responseIndex = 0;
+
+  return (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    assert.ok(
+      responseIndex < mockResponses.length,
+      "Unexpected extra provider request"
+    );
+
+    const responseBody = mockResponses[responseIndex];
+    responseIndex++;
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify(responseBody),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  }) as typeof fetch;
+}
+
+function restoreEnvironment(
+  originalEnv: NodeJS.ProcessEnv
+): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+/* =========================================================
+   End-to-End Pipeline Test
+========================================================= */
+
 test("runs the AI-backed generation pipeline end to end", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "sitecraft-pipeline-"));
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "sitecraft-pipeline-")
+  );
+
   const originalEnv = { ...process.env };
   const originalFetch = globalThis.fetch;
 
-  const plan = {
-    siteName: "Northstar Studio",
-    siteDescription: "A clear, high-trust studio website.",
-    pages: [{ name: "Home", slug: "/", pageType: "landing", sections: ["hero", "proof", "contact"] }],
-    theme: "editorial",
-    colorPalette: { primary: "#0f766e", secondary: "#99f6e4", background: "#071313", foreground: "#ecfdf5" },
-    fontFamily: "Inter, sans-serif",
-    features: ["responsive", "accessible"]
-  };
-  const content = {
-    heroTitle: "Design systems that ship",
-    heroSubtitle: "We help teams move from idea to launch without losing the thread.",
-    primaryCta: "Start a project",
-    secondaryCta: "See the process",
-    sections: [{ title: "Built for momentum", body: "A focused workflow keeps the output practical and shippable." }],
-    testimonials: [{ quote: "The first draft was already useful.", name: "Ava Chen", role: "Product Lead" }],
-    faq: [{ question: "Do you support revisions?", answer: "Yes. The generated project can be revised in place." }],
-    seo: { title: "Northstar Studio", description: "A clear, high-trust studio website." }
-  };
-  const design = {
-    layout: "Editorial hero with a compact proof grid and conversion footer.",
-    componentHierarchy: ["SiteShell", "Hero", "ProofGrid", "ContactFooter"],
-    tokens: { radius: "24px", spacing: "clamp(1rem, 2vw, 2rem)", shadow: "0 24px 80px rgba(0,0,0,.25)" },
-    responsiveRules: ["Collapse navigation under 760px", "Use one-column cards under 900px"]
-  };
-  const code = {
-    html: "<main><h1>Northstar Studio</h1></main>",
-    files: [{ path: "src/index.tsx", language: "tsx", content: "export default function App() { return <main />; }" }, { path: "README.md", language: "md", content: "# Northstar Studio" }],
-    assets: [{ kind: "illustration", description: "Editorial abstract hero" }]
-  };
-  const qa = { passed: true, score: 98, issues: [] };
-  const responses = [plan, content, design, code, qa];
-  let callIndex = 0;
-
-  process.env.SITECRAFT_DATA_DIR = tempDir;
-  delete process.env.DATABASE_URL;
-  delete process.env.GEMINI_API_KEY;
-  delete process.env.BYNARA_API_KEY;
-  delete process.env.OPENAI_API_KEY;
-  process.env.NVIDIA_API_KEY = "nvidia-key";
-  process.env.NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
-  process.env.NVIDIA_MODEL = "qwen/qwen3-coder-480b-a35b-instruct";
-
-  globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(responses[callIndex++]) } }] }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
-
   try {
-    const { createProject, getProject } = await import("./store.js");
-    const { generateProject } = await import("./orchestrator.js");
+    /* Configure isolated test environment */
 
-    delete process.env.GEMINI_API_KEY;
-    delete process.env.BYNARA_API_KEY;
+    process.env.SITECRAFT_DATA_DIR = tempDir;
+
+    process.env.NVIDIA_API_KEY = "nvidia-key";
+    process.env.NVIDIA_BASE_URL =
+      "https://integrate.api.nvidia.com/v1";
+    process.env.NVIDIA_MODEL =
+      "qwen/qwen3-coder-480b-a35b-instruct";
+
     delete process.env.OPENAI_API_KEY;
-    delete process.env.DATABASE_URL;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
 
-    const project = await createProject({ userId: "demo-user", name: "Northstar", description: "Demo", initialPrompt: "Build a studio site" });
-    const result = await generateProject(project.id, "Build a studio site");
-    const stored = await getProject(project.id);
+    /* Configure mock provider */
 
+    let providerCalls = 0;
+
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ) => {
+      providerCalls++;
+
+      const response = await createMockFetch(responses)(
+        input,
+        init
+      );
+
+      return response;
+    }) as typeof fetch;
+
+    /*
+     * Import after environment configuration.
+     * This helps modules that read environment variables
+     * during initialization.
+     */
+
+    const storeModule = await import("./store.js");
+    const orchestratorModule = await import("./orchestrator.js");
+
+    const store = storeModule;
+    const orchestrator = orchestratorModule;
+
+    /* Create a project */
+
+    const project = await store.createProject({
+      name: "Northstar Studio",
+      description: "A creative studio website",
+      initialPrompt:
+        "Build a modern and responsive website for a creative studio.",
+    });
+
+    assert.ok(project, "Project should be created");
+    assert.ok(project.id, "Project should have an ID");
+
+    /* Run the generation pipeline */
+
+    const result = await orchestrator.generateProject(project.id);
+
+    assert.ok(result, "Pipeline should return a result");
+
+    /* Verify provider calls */
+
+    assert.equal(
+      providerCalls,
+      responses.length,
+      "Pipeline should make one request for each generation stage"
+    );
+
+    /* Verify generated result */
+
+    assert.equal(result.plan.siteName, plan.siteName);
+    assert.equal(result.content.hero.title, content.hero.title);
+    assert.equal(result.design.layout, design.layout);
+    assert.equal(result.code.html, code.html);
     assert.equal(result.qa.passed, true);
-    assert.equal(result.website.plan.siteName, plan.siteName);
-    assert.equal(result.website.content.heroTitle, content.heroTitle);
-    assert.ok(result.website.html.includes("Northstar Studio"));
-    assert.equal(result.provider, "nvidia");
-    assert.equal(stored?.status, "ready");
-    assert.ok(stored?.websites[0]?.generatedCode.html.includes("Northstar Studio"));
+    assert.equal(result.qa.score, 98);
+    assert.deepEqual(result.qa.issues, []);
+
+    /* Verify generated files */
+
+    assert.ok(Array.isArray(result.code.files));
+    assert.equal(result.code.files.length, code.files.length);
+
+    assert.deepEqual(
+      result.code.files.map((file: { path: string }) => file.path),
+      code.files.map((file) => file.path)
+    );
+
+    assert.ok(Array.isArray(result.code.assets));
+    assert.equal(
+      result.code.assets.length,
+      code.assets.length
+    );
+
+    /* Verify saved project */
+
+    const storedProject = await store.getProject(project.id);
+
+    assert.ok(storedProject, "Generated project should be stored");
+
+    assert.equal(storedProject.id, project.id);
+
+    assert.equal(
+      storedProject.status,
+      "completed",
+      "Project status should be completed"
+    );
+
+    assert.deepEqual(storedProject.plan, result.plan);
+    assert.deepEqual(storedProject.content, result.content);
+    assert.deepEqual(storedProject.design, result.design);
+    assert.deepEqual(storedProject.code, result.code);
+    assert.deepEqual(storedProject.qa, result.qa);
   } finally {
+    /* Restore global fetch */
+
     globalThis.fetch = originalFetch;
-    process.env = originalEnv;
-    await rm(tempDir, { recursive: true, force: true });
+
+    /* Restore environment variables */
+
+    restoreEnvironment(originalEnv);
+
+    /* Remove temporary test data */
+
+    await rm(tempDir, {
+      recursive: true,
+      force: true,
+    });
   }
 });

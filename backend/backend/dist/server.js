@@ -1,262 +1,629 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
+
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { deployToVercel } from "./deployment/vercel.js";
+
+/* =========================================================
+   Test Data
+========================================================= */
+
+const TEST_TOKEN = "fake-vercel-token";
+const VERCEL_API_URL = "https://api.vercel.com/v13/deployments";
+
+const TEST_FILES = [
+  {
+    path: "index.html",
+    content: "<h1>Hello</h1>",
+  },
+];
+
+/* =========================================================
+   Types
+========================================================= */
+
+type MockFetchHandler = (
+  input: RequestInfo | URL,
+  init?: RequestInit
+) => Response | Promise<Response>;
+
+type DeploymentFile = {
+  path: string;
+  content: string;
 };
-Object.defineProperty(exports, "__esModule", { value: true });
-const dotenv_1 = __importDefault(require("dotenv"));
-const node_path_1 = __importDefault(require("node:path"));
-const node_http_1 = __importDefault(require("node:http"));
-const node_url_1 = require("node:url");
-const jszip_1 = __importDefault(require("jszip"));
-const zod_1 = require("zod");
-const ml_1 = require("@sitecraft/ml");
-const store_js_1 = require("./store.js");
-const validators_js_1 = require("./validators.js");
-const orchestrator_js_1 = require("./orchestrator.js");
-const vercel_js_1 = require("./deployment/vercel.js");
-const netlify_js_1 = require("./deployment/netlify.js");
-// Load .env from workspace or root
-dotenv_1.default.config({ path: node_path_1.default.resolve(process.cwd(), ".env") });
-dotenv_1.default.config({ path: node_path_1.default.resolve(process.cwd(), "../.env") });
-const port = Number(process.env.BACKEND_PORT || 4000);
-const provider = (0, ml_1.createProvider)();
-function sendJson(response, status, body) {
-    response.writeHead(status, {
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": process.env.FRONTEND_ORIGIN || "http://localhost:3000",
-        "Access-Control-Allow-Headers": "Content-Type, x-user-id, x-user-role",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS"
-    });
-    response.end(JSON.stringify(body));
-}
-async function readBody(request) {
-    const chunks = [];
-    for await (const chunk of request)
-        chunks.push(Buffer.from(chunk));
-    if (!chunks.length)
-        return {};
-    try {
-        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    }
-    catch {
-        throw new Error("Invalid JSON body");
-    }
-}
-function errorResponse(error) {
-    if (error instanceof zod_1.z.ZodError)
-        return { code: "INVALID_INPUT", message: error.issues[0]?.message || "Invalid input" };
-    if (error instanceof ml_1.ProviderError)
-        return { code: error.code, message: error.message };
-    return { code: "REQUEST_FAILED", message: error instanceof Error ? error.message : "Request failed" };
-}
-function errorStatus(error) {
-    if (error instanceof ml_1.ProviderError) {
-        if (error.code === "INVALID_API_KEY")
-            return 401;
-        if (error.code === "RATE_LIMIT")
-            return 429;
-        if (error.code === "TIMEOUT")
-            return 504;
-        if (error.code === "MODEL_UNAVAILABLE")
-            return 503;
-        if (error.code === "MALFORMED_RESPONSE")
-            return 502;
-        if (error.code === "API_FAILURE")
-            return 502;
-    }
-    return error instanceof zod_1.z.ZodError ? 400 : 500;
-}
-const server = node_http_1.default.createServer(async (request, response) => {
-    if (request.method === "OPTIONS") {
-        response.writeHead(204, {
-            "Access-Control-Allow-Origin": process.env.FRONTEND_ORIGIN || "http://localhost:3000",
-            "Access-Control-Allow-Headers": "Content-Type, x-user-id, x-user-role",
-            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS"
-        });
-        response.end();
-        return;
-    }
-    const url = new node_url_1.URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const userId = request.headers["x-user-id"]?.toString();
-    const userRole = request.headers["x-user-role"]?.toString();
-    const requireAuth = () => {
-        if (!userId) {
-            sendJson(response, 401, { success: false, error: { code: "UNAUTHORIZED", message: "Authentication required. Please sign in." } });
-            return false;
-        }
-        return true;
-    };
-    const authorizeProject = async (projectId) => {
-        if (!requireAuth())
-            return undefined;
-        const project = await (0, store_js_1.getProject)(projectId, userId, userRole);
-        if (!project) {
-            sendJson(response, 404, { success: false, error: { code: "NOT_FOUND", message: "Project not found" } });
-        }
-        return project;
-    };
-    try {
-        // Health and configuration check endpoint
-        if (request.method === "GET" && url.pathname === "/api/health") {
-            return sendJson(response, 200, {
-                success: true,
-                data: {
-                    service: "sitecraft-backend",
-                    provider: provider.config.provider,
-                    model: provider.config.model,
-                    message: provider.config.message || "SiteCraft AI engine operational."
-                }
-            });
-        }
-        // Config integration status for dashboard settings
-        if (request.method === "GET" && url.pathname === "/api/config/status") {
-            return sendJson(response, 200, {
-                success: true,
-                data: {
-                    gemini: Boolean(process.env.GEMINI_API_KEY),
-                    openai: Boolean(process.env.OPENAI_API_KEY),
-                    nvidia: Boolean(process.env.NVIDIA_API_KEY),
-                    bynara: Boolean(process.env.BYNARA_API_KEY),
-                    database: Boolean(process.env.DATABASE_URL),
-                    auth: Boolean(process.env.AUTH_SECRET),
-                    googleOAuth: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-                    unsplash: Boolean(process.env.UNSPLASH_ACCESS_KEY),
-                    vercel: Boolean(process.env.VERCEL_TOKEN),
-                    activeProvider: provider.config.provider,
-                    activeModel: provider.config.model
-                }
-            });
-        }
-        // List projects
-        if (request.method === "GET" && url.pathname === "/api/projects") {
-            if (!requireAuth())
-                return;
-            return sendJson(response, 200, { success: true, data: await (0, store_js_1.listProjects)(userId, userRole) });
-        }
-        // Create project
-        if (request.method === "POST" && url.pathname === "/api/projects") {
-            if (!requireAuth())
-                return;
-            const input = validators_js_1.createProjectSchema.parse(await readBody(request));
-            return sendJson(response, 201, { success: true, data: await (0, store_js_1.createProject)({ ...input, userId }) });
-        }
-        // Project subroutes
-        if (parts[0] === "api" && parts[1] === "projects" && parts[2]) {
-            const projectId = parts[2];
-            // Get single project
-            if (request.method === "GET" && parts.length === 3) {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                return sendJson(response, 200, { success: true, data: project });
-            }
-            // Delete project
-            if (request.method === "DELETE" && parts.length === 3) {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                return sendJson(response, (await (0, store_js_1.deleteProject)(projectId)) ? 200 : 404, { success: true, data: { id: projectId } });
-            }
-            // Generate website via multi-agent pipeline
-            if (request.method === "POST" && parts[3] === "generate") {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                const { prompt } = validators_js_1.promptSchema.parse(await readBody(request));
-                const result = await (0, orchestrator_js_1.generateProject)(projectId, prompt);
-                return sendJson(response, 200, { success: true, data: result });
-            }
-            // Revise website via conversational edits
-            if (request.method === "POST" && parts[3] === "revise") {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                const { prompt } = validators_js_1.promptSchema.parse(await readBody(request));
-                const result = await (0, orchestrator_js_1.reviseProject)(projectId, prompt);
-                return sendJson(response, 200, { success: true, data: result });
-            }
-            // Export project as ZIP
-            if (request.method === "GET" && parts[3] === "export") {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                const site = project?.websites[0]?.generatedCode;
-                if (!site) {
-                    return sendJson(response, 404, { success: false, error: { code: "NOT_READY", message: "Generate a website before exporting." } });
-                }
-                const zip = new jszip_1.default();
-                for (const file of site.files) {
-                    zip.file(file.path, file.content);
-                }
-                const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-                response.writeHead(200, {
-                    "Content-Type": "application/zip",
-                    "Content-Disposition": `attachment; filename="${project.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "sitecraft-site"}.zip"`,
-                    "Access-Control-Allow-Origin": process.env.FRONTEND_ORIGIN || "http://localhost:3000"
-                });
-                response.end(buffer);
-                return;
-            }
-            // Deploy website to Vercel or Netlify
-            if (request.method === "POST" && parts[3] === "deploy") {
-                const project = await authorizeProject(projectId);
-                if (!project)
-                    return;
-                const site = project?.websites[0]?.generatedCode;
-                if (!site) {
-                    return sendJson(response, 400, { success: false, error: { code: "NOT_READY", message: "Generate a website before deploying." } });
-                }
-                const body = (await readBody(request));
-                const providerName = (body.provider || "vercel").toLowerCase();
-                let deployResult;
-                if (providerName === "netlify") {
-                    deployResult = await (0, netlify_js_1.deployToNetlify)(project.name, site.files);
-                }
-                else {
-                    deployResult = await (0, vercel_js_1.deployToVercel)(project.name, site.files, process.env.VERCEL_TOKEN, process.env.VERCEL_TEAM_ID);
-                }
-                if (deployResult.success) {
-                    await (0, store_js_1.recordDeployment)(projectId, {
-                        provider: deployResult.provider,
-                        deploymentUrl: deployResult.deploymentUrl,
-                        deploymentId: deployResult.deploymentId,
-                        status: deployResult.status
-                    });
-                }
-                return sendJson(response, deployResult.success ? 200 : 400, {
-                    success: deployResult.success,
-                    data: deployResult,
-                    ...(deployResult.error ? { error: { code: "DEPLOYMENT_FAILED", message: deployResult.error } } : {})
-                });
-            }
-        }
-        return sendJson(response, 404, { success: false, error: { code: "NOT_FOUND", message: "Route not found" } });
-    }
-    catch (error) {
-        const failure = errorResponse(error);
-        console.error(JSON.stringify({
-            event: "request_failed",
-            path: url.pathname,
-            error: failure,
-            ...(error instanceof ml_1.ProviderError ? { provider: error.provider, model: error.model, status: error.status } : {})
-        }));
-        return sendJson(response, errorStatus(error), { success: false, error: failure });
-    }
-});
-server.listen(port, () => {
-    console.log(JSON.stringify({
-        event: "backend_started",
-        port,
-        activeProvider: provider.config.provider,
-        model: provider.config.model
-    }));
-});
-const handleShutdown = () => {
-    server.close(() => {
-        process.exit(0);
-    });
-    setTimeout(() => process.exit(0), 1000).unref();
+
+type DeploymentResponse = {
+  success: boolean;
+  status: string;
+  deploymentId?: string;
+  deploymentUrl?: string;
+  provider?: string;
+  error?: string;
 };
-process.on("SIGINT", handleShutdown);
-process.on("SIGTERM", handleShutdown);
+
+/* =========================================================
+   Mock Helpers
+========================================================= */
+
+function mockResponse(
+  body: unknown,
+  status = 200
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function successfulResponse(
+  id = "dpl_12345",
+  url = "test-project.vercel.app"
+): Response {
+  return mockResponse({
+    id,
+    url,
+    readyState: "READY",
+  });
+}
+
+function createMockFetch(
+  handler: MockFetchHandler
+): typeof fetch {
+  return (async (input, init) => {
+    return handler(input, init);
+  }) as typeof fetch;
+}
+
+async function withMockFetch<T>(
+  mockedFetch: typeof fetch,
+  callback: () => Promise<T>
+): Promise<T> {
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = mockedFetch;
+    return await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function deployWithMock(
+  handler: MockFetchHandler,
+  projectName = "Test Project",
+  files: DeploymentFile[] = TEST_FILES,
+  token = TEST_TOKEN,
+  teamId?: string
+): Promise<DeploymentResponse> {
+  return withMockFetch(
+    createMockFetch(handler),
+    () =>
+      deployToVercel(
+        projectName,
+        files,
+        token,
+        teamId
+      )
+  );
+}
+
+function assertDeploymentFailed(
+  result: DeploymentResponse
+): void {
+  assert.equal(result.success, false);
+  assert.equal(result.status, "ERROR");
+  assert.ok(result.error);
+}
+
+/* =========================================================
+   1. Configuration
+========================================================= */
+
+test("returns an error when the Vercel token is missing", async () => {
+  const result = await deployToVercel(
+    "Test Project",
+    TEST_FILES,
+    ""
+  );
+
+  assertDeploymentFailed(result);
+
+  assert.match(
+    result.error ?? "",
+    /Vercel deployment is not configured/i
+  );
+});
+
+/* =========================================================
+   2. Successful Deployment
+========================================================= */
+
+test("deploys a project successfully", async () => {
+  const result = await deployWithMock(
+    () => successfulResponse()
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.status, "READY");
+  assert.equal(result.deploymentId, "dpl_12345");
+  assert.equal(
+    result.deploymentUrl,
+    "https://test-project.vercel.app"
+  );
+  assert.equal(result.provider, "vercel");
+});
+
+test("uses the deployment ID and URL returned by Vercel", async () => {
+  const result = await deployWithMock(
+    () =>
+      successfulResponse(
+        "dpl_custom_456",
+        "custom-project.vercel.app"
+      )
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.deploymentId, "dpl_custom_456");
+  assert.equal(
+    result.deploymentUrl,
+    "https://custom-project.vercel.app"
+  );
+});
+
+/* =========================================================
+   3. Request Method and URL
+========================================================= */
+
+test("sends a POST request to the Vercel deployments API", async () => {
+  let requestUrl = "";
+  let requestMethod = "";
+
+  const result = await deployWithMock(
+    (input, init) => {
+      requestUrl = String(input);
+      requestMethod = init?.method ?? "";
+
+      return successfulResponse();
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(requestMethod, "POST");
+  assert.equal(requestUrl, VERCEL_API_URL);
+});
+
+/* =========================================================
+   4. Authorization and Headers
+========================================================= */
+
+test("sends the correct Bearer authorization header", async () => {
+  let authorization = "";
+
+  const result = await deployWithMock(
+    (_input, init) => {
+      authorization = new Headers(
+        init?.headers
+      ).get("Authorization") ?? "";
+
+      return successfulResponse();
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(
+    authorization,
+    `Bearer ${TEST_TOKEN}`
+  );
+});
+
+test("sends JSON content type", async () => {
+  let contentType = "";
+
+  const result = await deployWithMock(
+    (_input, init) => {
+      contentType = new Headers(
+        init?.headers
+      ).get("Content-Type") ?? "";
+
+      return successfulResponse();
+    }
+  );
+
+  assert.equal(result.success, true);
+  assert.match(
+    contentType,
+    /application\/json/i
+  );
+});
+
+/* =========================================================
+   5. Request Body
+========================================================= */
+
+test("sends the correct project slug and deployment files", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+
+  const result = await deployWithMock(
+    (_input, init) => {
+      assert.equal(init?.method, "POST");
+      assert.equal(typeof init?.body, "string");
+
+      requestBody = JSON.parse(
+        String(init?.body)
+      ) as Record<string, unknown>;
+
+      return successfulResponse();
+    },
+    "Files Test"
+  );
+
+  assert.equal(result.success, true);
+  assert.ok(requestBody);
+  assert.equal(requestBody.name, "files-test");
+  assert.ok(Array.isArray(requestBody.files));
+
+  const files = requestBody.files as Array<{
+    file: string;
+    data: string;
+  }>;
+
+  assert.equal(files.length, 1);
+  assert.equal(files[0].file, "index.html");
+  assert.equal(files[0].data, "<h1>Hello</h1>");
+});
+
+test("preserves multiple deployment files", async () => {
+  const inputFiles = [
+    {
+      path: "index.html",
+      content: "<h1>Home</h1>",
+    },
+    {
+      path: "about.html",
+      content: "<h1>About</h1>",
+    },
+    {
+      path: "styles.css",
+      content: "body { margin: 0; }",
+    },
+  ];
+
+  let requestBody: Record<string, unknown> | undefined;
+
+  const result = await deployWithMock(
+    (_input, init) => {
+      requestBody = JSON.parse(
+        String(init?.body)
+      ) as Record<string, unknown>;
+
+      return successfulResponse();
+    },
+    "Multiple Files",
+    inputFiles
+  );
+
+  assert.equal(result.success, true);
+  assert.ok(requestBody);
+  assert.ok(Array.isArray(requestBody.files));
+
+  const files = requestBody.files as Array<{
+    file: string;
+    data: string;
+  }>;
+
+  assert.equal(files.length, 3);
+  assert.deepEqual(
+    files.map((file) => file.file),
+    ["index.html", "about.html", "styles.css"]
+  );
+  assert.deepEqual(
+    files.map((file) => file.data),
+    [
+      "<h1>Home</h1>",
+      "<h1>About</h1>",
+      "body { margin: 0; }",
+    ]
+  );
+});
+
+/* =========================================================
+   6. Team Configuration
+========================================================= */
+
+test("includes teamId when provided", async () => {
+  let requestUrl = "";
+
+  const result = await deployWithMock(
+    (input) => {
+      requestUrl = String(input);
+
+      return successfulResponse(
+        "dpl_team",
+        "team-test.vercel.app"
+      );
+    },
+    "Team Test",
+    TEST_FILES,
+    TEST_TOKEN,
+    "team_123"
+  );
+
+  assert.equal(result.success, true);
+
+  const url = new URL(requestUrl);
+
+  assert.equal(
+    url.searchParams.get("teamId"),
+    "team_123"
+  );
+});
+
+test("omits teamId when it is not provided", async () => {
+  let requestUrl = "";
+
+  const result = await deployWithMock(
+    (input) => {
+      requestUrl = String(input);
+      return successfulResponse();
+    }
+  );
+
+  assert.equal(result.success, true);
+
+  const url = new URL(requestUrl);
+
+  assert.equal(
+    url.searchParams.has("teamId"),
+    false
+  );
+});
+
+/* =========================================================
+   7. API Error Handling
+========================================================= */
+
+const apiFailureCases = [
+  {
+    name: "server errors",
+    status: 500,
+    message: "Vercel deployment failed",
+  },
+  {
+    name: "unauthorized responses",
+    status: 401,
+    message: "Invalid token",
+  },
+  {
+    name: "rate-limit responses",
+    status: 429,
+    message: "Rate limit exceeded",
+  },
+  {
+    name: "forbidden responses",
+    status: 403,
+    message: "Permission denied",
+  },
+] as const;
+
+for (const failure of apiFailureCases) {
+  test(`handles ${failure.name}`, async () => {
+    const result = await deployWithMock(
+      () =>
+        mockResponse(
+          {
+            error: {
+              message: failure.message,
+            },
+          },
+          failure.status
+        )
+    );
+
+    assertDeploymentFailed(result);
+
+    if (failure.status !== 429) {
+      assert.match(
+        result.error ?? "",
+        new RegExp(failure.message, "i")
+      );
+    }
+  });
+}
+
+/* =========================================================
+   8. Invalid Inputs
+========================================================= */
+
+test("rejects an empty project name", async () => {
+  const result = await deployToVercel(
+    "",
+    TEST_FILES,
+    TEST_TOKEN
+  );
+
+  assertDeploymentFailed(result);
+
+  assert.match(
+    result.error ?? "",
+    /project name/i
+  );
+});
+
+test("rejects an empty deployment file list", async () => {
+  const result = await deployToVercel(
+    "Empty Project",
+    [],
+    TEST_TOKEN
+  );
+
+  assertDeploymentFailed(result);
+});
+
+test("does not call the API when the project name is invalid", async () => {
+  let requestCount = 0;
+
+  const result = await deployWithMock(
+    () => {
+      requestCount++;
+      return successfulResponse();
+    },
+    ""
+  );
+
+  assertDeploymentFailed(result);
+  assert.equal(requestCount, 0);
+});
+
+test("does not call the API when there are no files", async () => {
+  let requestCount = 0;
+
+  const result = await deployWithMock(
+    () => {
+      requestCount++;
+      return successfulResponse();
+    },
+    "Empty Project",
+    []
+  );
+
+  assertDeploymentFailed(result);
+  assert.equal(requestCount, 0);
+});
+
+/* =========================================================
+   9. Malformed API Responses
+========================================================= */
+
+const malformedResponseCases = [
+  {
+    name: "invalid JSON",
+    response: () =>
+      new Response("invalid-json", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+  },
+  {
+    name: "an empty response body",
+    response: () =>
+      new Response("", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+  },
+  {
+    name: "a response without a deployment ID",
+    response: () =>
+      mockResponse({
+        url: "missing-id.vercel.app",
+        readyState: "READY",
+      }),
+  },
+] as const;
+
+for (const malformed of malformedResponseCases) {
+  test(`handles ${malformed.name}`, async () => {
+    const result = await deployWithMock(
+      () => malformed.response()
+    );
+
+    assertDeploymentFailed(result);
+  });
+}
+
+/* =========================================================
+   10. Network Failures
+========================================================= */
+
+test("handles network failures gracefully", async () => {
+  const result = await deployWithMock(() => {
+    throw new Error("Network connection failed");
+  });
+
+  assertDeploymentFailed(result);
+});
+
+test("handles non-Error network exceptions", async () => {
+  const result = await deployWithMock(() => {
+    throw "Network unavailable";
+  });
+
+  assertDeploymentFailed(result);
+});
+
+/* =========================================================
+   11. Security
+========================================================= */
+
+test("does not expose the Vercel token in error messages", async () => {
+  const secretToken = "super-secret-vercel-token";
+
+  const result = await deployWithMock(
+    () =>
+      mockResponse(
+        {
+          error: {
+            message: "Deployment authentication failed",
+          },
+        },
+        401
+      ),
+    "Security Test",
+    TEST_FILES,
+    secretToken
+  );
+
+  assertDeploymentFailed(result);
+
+  assert.doesNotMatch(
+    result.error ?? "",
+    /super-secret-vercel-token/i
+  );
+});
+
+/* =========================================================
+   12. Fetch Restoration
+========================================================= */
+
+test("restores global fetch after a deployment error", async () => {
+  const originalFetch = globalThis.fetch;
+
+  const result = await deployWithMock(
+    () =>
+      mockResponse(
+        {
+          error: {
+            message: "Deployment failed",
+          },
+        },
+        500
+      )
+  );
+
+  assertDeploymentFailed(result);
+  assert.equal(globalThis.fetch, originalFetch);
+});
+
+test("restores global fetch when the mock throws", async () => {
+  const originalFetch = globalThis.fetch;
+
+  await assert.rejects(
+    withMockFetch(
+      createMockFetch(() => {
+        throw new Error("Mock failure");
+      }),
+      async () => {
+        await fetch("https://example.com");
+      }
+    ),
+    /Mock failure/
+  );
+
+  assert.equal(globalThis.fetch, originalFetch);
+});

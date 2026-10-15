@@ -1,67 +1,283 @@
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createProvider } from "@sitecraft/ml";
 
-test("selects per-agent models and reports missing provider", () => {
+/* =========================================================
+   Test Data
+========================================================= */
+
+const modelOverrides = {
+  PLANNER_MODEL: "planner-model",
+  UI_MODEL: "ui-model",
+  CONTENT_MODEL: "content-model",
+  CODE_MODEL: "code-model",
+  QA_MODEL: "qa-model",
+};
+
+const expectedAgentModels = {
+  planner: "planner-model",
+  ui: "ui-model",
+  content: "content-model",
+  code: "code-model",
+  qa: "qa-model",
+};
+
+/* =========================================================
+   Local Provider
+========================================================= */
+
+test("defaults to local when no API key is configured", () => {
   const provider = createProvider({
-    PLANNER_MODEL: "planner-model",
-    UI_MODEL: "ui-model",
-    CONTENT_MODEL: "content-model",
-    CODE_MODEL: "code-model",
-    QA_MODEL: "qa-model"
+    ...modelOverrides,
   });
 
   assert.equal(provider.config.provider, "local");
   assert.equal(provider.config.configured, false);
-  assert.equal(provider.config.agentModels.planner, "planner-model");
-  assert.equal(provider.config.agentModels.ui, "ui-model");
-  assert.equal(provider.config.agentModels.content, "content-model");
-  assert.equal(provider.config.agentModels.code, "code-model");
-  assert.equal(provider.config.agentModels.qa, "qa-model");
+  assert.deepEqual(
+    provider.config.agentModels,
+    expectedAgentModels
+  );
 });
 
-test("prefers Gemini when configured", () => {
+test("agent model overrides alone do not activate an external provider", () => {
+  const provider = createProvider({
+    ...modelOverrides,
+  });
+
+  assert.equal(provider.config.provider, "local");
+  assert.equal(provider.config.configured, false);
+});
+
+test("empty API keys fall back to the local provider", () => {
+  const provider = createProvider({
+    GEMINI_API_KEY: "",
+    OPENAI_API_KEY: "",
+    NVIDIA_API_KEY: "",
+    BYNARA_API_KEY: "",
+  });
+
+  assert.equal(provider.config.provider, "local");
+  assert.equal(provider.config.configured, false);
+});
+
+/* =========================================================
+   Gemini Provider
+========================================================= */
+
+test("selects Gemini when Gemini is configured", () => {
   const provider = createProvider({
     GEMINI_API_KEY: "gemini-key",
-    AI_MODEL: "gemini-3.6-flash"
+    AI_MODEL: "gemini-test-model",
   });
 
   assert.equal(provider.config.provider, "gemini");
   assert.equal(provider.config.configured, true);
-  assert.equal(provider.config.model, "gemini-3.6-flash");
+  assert.equal(provider.config.model, "gemini-test-model");
 });
 
-test("prefers OpenAI when Gemini is not configured", () => {
+test("Gemini has priority over all other providers", () => {
+  const provider = createProvider({
+    GEMINI_API_KEY: "gemini-key",
+    OPENAI_API_KEY: "openai-key",
+    NVIDIA_API_KEY: "nvidia-key",
+    BYNARA_API_KEY: "bynara-key",
+    AI_MODEL: "gemini-primary",
+  });
+
+  assert.equal(provider.config.provider, "gemini");
+  assert.equal(provider.config.model, "gemini-primary");
+});
+
+/* =========================================================
+   OpenAI Provider
+========================================================= */
+
+test("selects OpenAI when OpenAI is configured", () => {
   const provider = createProvider({
     OPENAI_API_KEY: "openai-key",
-    AI_MODEL: "gpt-4o"
+    AI_MODEL: "gpt-test-model",
   });
 
   assert.equal(provider.config.provider, "openai");
   assert.equal(provider.config.configured, true);
-  assert.equal(provider.config.model, "gpt-4o");
+  assert.equal(provider.config.model, "gpt-test-model");
 });
 
-test("prefers NVIDIA when configured without Gemini/OpenAI", () => {
+test("OpenAI has priority over NVIDIA and BYNARA", () => {
+  const provider = createProvider({
+    OPENAI_API_KEY: "openai-key",
+    NVIDIA_API_KEY: "nvidia-key",
+    BYNARA_API_KEY: "bynara-key",
+    AI_MODEL: "openai-primary",
+  });
+
+  assert.equal(provider.config.provider, "openai");
+  assert.equal(provider.config.model, "openai-primary");
+});
+
+/* =========================================================
+   NVIDIA Provider
+========================================================= */
+
+test("selects NVIDIA when NVIDIA is configured", () => {
   const provider = createProvider({
     NVIDIA_API_KEY: "nvidia-key",
     NVIDIA_BASE_URL: "https://integrate.api.nvidia.com/v1",
-    NVIDIA_MODEL: "qwen/qwen3-coder-480b-a35b-instruct"
+    NVIDIA_MODEL: "nvidia-test-model",
   });
 
   assert.equal(provider.config.provider, "nvidia");
   assert.equal(provider.config.configured, true);
-  assert.equal(provider.config.model, "qwen/qwen3-coder-480b-a35b-instruct");
+  assert.equal(provider.config.model, "nvidia-test-model");
+  assert.equal(
+    provider.config.baseUrl,
+    "https://integrate.api.nvidia.com/v1"
+  );
 });
 
-test("prefers BYNARA when configured without other providers", () => {
+test("NVIDIA has priority over BYNARA", () => {
+  const provider = createProvider({
+    NVIDIA_API_KEY: "nvidia-key",
+    BYNARA_API_KEY: "bynara-key",
+    NVIDIA_MODEL: "nvidia-primary",
+    BYNARA_MODEL: "bynara-secondary",
+  });
+
+  assert.equal(provider.config.provider, "nvidia");
+  assert.equal(provider.config.model, "nvidia-primary");
+});
+
+test("preserves a custom NVIDIA base URL", () => {
+  const provider = createProvider({
+    NVIDIA_API_KEY: "nvidia-key",
+    NVIDIA_BASE_URL: "https://custom-nvidia.example.com/v1",
+    NVIDIA_MODEL: "custom-nvidia-model",
+  });
+
+  assert.equal(provider.config.provider, "nvidia");
+  assert.equal(provider.config.model, "custom-nvidia-model");
+  assert.equal(
+    provider.config.baseUrl,
+    "https://custom-nvidia.example.com/v1"
+  );
+});
+
+/* =========================================================
+   BYNARA Provider
+========================================================= */
+
+test("selects BYNARA when BYNARA is configured", () => {
   const provider = createProvider({
     BYNARA_API_KEY: "bynara-key",
     BYNARA_BASE_URL: "https://router.bynara.id/v1",
-    BYNARA_MODEL: "agnes-2.0-flash"
+    BYNARA_MODEL: "bynara-test-model",
   });
 
   assert.equal(provider.config.provider, "bynara");
   assert.equal(provider.config.configured, true);
-  assert.equal(provider.config.model, "agnes-2.0-flash");
+  assert.equal(provider.config.model, "bynara-test-model");
+  assert.equal(
+    provider.config.baseUrl,
+    "https://router.bynara.id/v1"
+  );
+});
+
+test("preserves a custom BYNARA base URL", () => {
+  const provider = createProvider({
+    BYNARA_API_KEY: "bynara-key",
+    BYNARA_BASE_URL: "https://custom-bynara.example.com/v1",
+    BYNARA_MODEL: "custom-bynara-model",
+  });
+
+  assert.equal(provider.config.provider, "bynara");
+  assert.equal(provider.config.model, "custom-bynara-model");
+  assert.equal(
+    provider.config.baseUrl,
+    "https://custom-bynara.example.com/v1"
+  );
+});
+
+/* =========================================================
+   Per-Agent Model Overrides
+========================================================= */
+
+test("preserves all per-agent model overrides", () => {
+  const provider = createProvider({
+    NVIDIA_API_KEY: "nvidia-key",
+    NVIDIA_MODEL: "default-nvidia-model",
+    PLANNER_MODEL: "planner-specialized",
+    UI_MODEL: "ui-specialized",
+    CONTENT_MODEL: "content-specialized",
+    CODE_MODEL: "code-specialized",
+    QA_MODEL: "qa-specialized",
+  });
+
+  assert.equal(provider.config.provider, "nvidia");
+  assert.equal(
+    provider.config.model,
+    "default-nvidia-model"
+  );
+
+  assert.deepEqual(provider.config.agentModels, {
+    planner: "planner-specialized",
+    ui: "ui-specialized",
+    content: "content-specialized",
+    code: "code-specialized",
+    qa: "qa-specialized",
+  });
+});
+
+test("uses default agent model overrides when custom overrides are absent", () => {
+  const provider = createProvider({
+    OPENAI_API_KEY: "openai-key",
+    AI_MODEL: "default-model",
+  });
+
+  assert.equal(provider.config.provider, "openai");
+  assert.equal(provider.config.model, "default-model");
+  assert.ok(provider.config.agentModels);
+});
+
+/* =========================================================
+   Provider Independence
+========================================================= */
+
+test("provider configurations remain independent", () => {
+  const gemini = createProvider({
+    GEMINI_API_KEY: "gemini-key",
+    AI_MODEL: "gemini-model",
+  });
+
+  const openai = createProvider({
+    OPENAI_API_KEY: "openai-key",
+    AI_MODEL: "openai-model",
+  });
+
+  const nvidia = createProvider({
+    NVIDIA_API_KEY: "nvidia-key",
+    NVIDIA_MODEL: "nvidia-model",
+  });
+
+  const bynara = createProvider({
+    BYNARA_API_KEY: "bynara-key",
+    BYNARA_MODEL: "bynara-model",
+  });
+
+  const local = createProvider({});
+
+  assert.equal(gemini.config.provider, "gemini");
+  assert.equal(gemini.config.model, "gemini-model");
+
+  assert.equal(openai.config.provider, "openai");
+  assert.equal(openai.config.model, "openai-model");
+
+  assert.equal(nvidia.config.provider, "nvidia");
+  assert.equal(nvidia.config.model, "nvidia-model");
+
+  assert.equal(bynara.config.provider, "bynara");
+  assert.equal(bynara.config.model, "bynara-model");
+
+  assert.equal(local.config.provider, "local");
+  assert.equal(local.config.configured, false);
 });

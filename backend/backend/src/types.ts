@@ -1,135 +1,324 @@
-import type { GeneratedSitePayload, QAResult, WebsitePlan } from "@sitecraft/ml";
+
+import type {
+  GeneratedSitePayload,
+  QAResult,
+  WebsitePlan,
+} from "@sitecraft/ml";
+
+/* =========================================================
+   Primitive / Common Types
+========================================================= */
+
+export type ID = string;
+export type ISODateString = string;
 
 export type UserRole = "USER" | "ADMIN";
 
+export type ProjectStatus =
+  | "draft"
+  | "generating"
+  | "ready"
+  | "failed";
+
+export type DeploymentStatus =
+  | "PENDING"
+  | "BUILDING"
+  | "READY"
+  | "ERROR";
+
+export type GenerationStatus =
+  | "started"
+  | "completed"
+  | "failed"
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED";
+
+export type ChatMessageRole =
+  | "user"
+  | "assistant"
+  | "system";
+
+export type ActivityType =
+  | "user"
+  | "project"
+  | "generation"
+  | "deployment"
+  | "website";
+
+/* =========================================================
+   JSON Types
+========================================================= */
+
+export type JsonPrimitive =
+  | string
+  | number
+  | boolean
+  | null;
+
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export type JsonObject = {
+  [key: string]: JsonValue;
+};
+
+/* =========================================================
+   User
+========================================================= */
+
 export interface UserRecord {
-  id: string;
+  id: ID;
   name?: string | null;
   email: string;
   image?: string | null;
   role: UserRole;
-  createdAt: string;
-  updatedAt: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+
   projectsCount?: number;
   generationsCount?: number;
+  websitesCount?: number;
+  deploymentsCount?: number;
+
   tokensUsed?: number;
   estimatedCost?: number;
 }
 
+/* =========================================================
+   Website
+========================================================= */
+
 export interface WebsiteRecord {
-  id: string;
-  projectId: string;
+  id: ID;
+  projectId: ID;
+
   title: string;
   description: string;
   theme: string;
+
   colorPalette: WebsitePlan["colorPalette"];
   fontFamily: string;
+
   structure: WebsitePlan;
   generatedCode: GeneratedSitePayload;
+
   version: number;
-  createdAt: string;
-  updatedAt: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+
   qa?: QAResult;
   pagesCount?: number;
 }
 
+/* =========================================================
+   Website Page
+========================================================= */
+
 export interface WebsitePageRecord {
-  id: string;
-  websiteId: string;
+  id: ID;
+  websiteId: ID;
+
   name: string;
   slug: string;
   pageType: string;
-  content: unknown;
+
+  content: JsonValue;
   generatedCode?: string | null;
+
   order: number;
-  createdAt: string;
-  updatedAt: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
+
+/* =========================================================
+   Deployment
+========================================================= */
 
 export interface DeploymentRecord {
-  id: string;
-  projectId: string;
+  id: ID;
+  projectId: ID;
+
   projectName?: string;
-  userId?: string;
+
+  userId?: ID;
   userEmail?: string;
+
   provider: string;
+
   deploymentUrl?: string;
   deploymentId?: string;
-  status: "PENDING" | "BUILDING" | "READY" | "ERROR";
-  createdAt: string;
-  updatedAt: string;
+
+  status: DeploymentStatus;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }
+
+/* =========================================================
+   API Usage
+========================================================= */
 
 export interface ApiUsageRecord {
-  id: string;
-  userId: string;
+  id: ID;
+  userId: ID;
+
   userEmail?: string;
   userName?: string;
+
   provider: string;
   model?: string;
+
   tokens?: number;
   estimatedCost?: number;
-  createdAt: string;
+
+  createdAt: ISODateString;
 }
+
+/* =========================================================
+   Generation
+========================================================= */
 
 export interface GenerationRecord {
-  id: string;
-  projectId?: string;
+  id: ID;
+
+  projectId?: ID;
   projectName?: string;
-  userId?: string;
+
+  userId?: ID;
   userEmail?: string;
+
   agent: string;
   userPrompt: string;
-  status: "started" | "completed" | "failed" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-  input?: unknown;
-  output?: unknown;
+
+  status: GenerationStatus;
+
+  input?: JsonValue;
+  output?: JsonValue;
   error?: string;
+
   tokenUsage?: number;
   durationMs?: number;
-  createdAt: string;
+
+  createdAt: ISODateString;
 }
+
+/* =========================================================
+   Chat
+========================================================= */
 
 export interface ChatMessageRecord {
-  id: string;
-  projectId?: string;
+  id: ID;
+
+  projectId?: ID;
   projectName?: string;
-  userId?: string;
+
+  userId?: ID;
   userEmail?: string;
-  role: "user" | "assistant" | "system";
+
+  role: ChatMessageRole;
   content: string;
-  createdAt: string;
+
+  createdAt: ISODateString;
 }
 
+/* =========================================================
+   Project
+========================================================= */
+
 export interface ProjectRecord {
-  id: string;
-  userId: string;
+  id: ID;
+  userId: ID;
+
   userEmail?: string;
   userName?: string;
+
   name: string;
   description: string;
   initialPrompt: string;
-  status: "draft" | "generating" | "ready" | "failed";
+
+  status: ProjectStatus;
   framework: string;
-  createdAt: string;
-  updatedAt: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+
   websites: WebsiteRecord[];
   generations: GenerationRecord[];
   messages: ChatMessageRecord[];
+
   deployments?: DeploymentRecord[];
+
   websitesCount?: number;
   generationsCount?: number;
+  messagesCount?: number;
+  deploymentsCount?: number;
 }
 
+/* =========================================================
+   Admin Audit Logs
+========================================================= */
+
 export interface AdminAuditLogRecord {
-  id: string;
-  adminUserId: string;
+  id: ID;
+
+  adminUserId: ID;
+
   adminEmail?: string;
   adminName?: string;
+
   action: string;
+
   targetType: string;
-  targetId: string;
-  metadata?: unknown;
-  createdAt: string;
+  targetId: ID;
+
+  metadata?: Record<string, JsonValue>;
+
+  createdAt: ISODateString;
+}
+
+/* =========================================================
+   Admin Statistics
+========================================================= */
+
+export interface GrowthPoint {
+  date: ISODateString;
+  count: number;
+}
+
+export interface GenerationTimelinePoint {
+  date: ISODateString;
+
+  success: number;
+  failed: number;
+  running: number;
+}
+
+export interface AgentUsageStat {
+  agent: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ProviderDistributionStat {
+  provider: string;
+
+  count: number;
+  tokens: number;
+  estimatedCost: number;
+}
+
+export interface ModelDistributionStat {
+  model: string;
+
+  count: number;
+  tokens: number;
 }
 
 export interface AdminStats {
@@ -137,45 +326,315 @@ export interface AdminStats {
   totalProjects: number;
   totalWebsites: number;
   totalGenerations: number;
+
   totalTokens: number;
   estimatedCost: number;
+
   successfulGenerations: number;
   failedGenerations: number;
   runningGenerations: number;
-  userGrowth: Array<{ date: string; count: number }>;
-  projectGrowth: Array<{ date: string; count: number }>;
-  generationTimeline: Array<{ date: string; success: number; failed: number; running: number }>;
-  agentUsage: Array<{ agent: string; count: number; percentage: number }>;
-  providerDistribution: Array<{ provider: string; count: number; tokens: number; estimatedCost: number }>;
-  modelDistribution: Array<{ model: string; count: number; tokens: number }>;
+
+  userGrowth: GrowthPoint[];
+  projectGrowth: GrowthPoint[];
+
+  generationTimeline: GenerationTimelinePoint[];
+
+  agentUsage: AgentUsageStat[];
+
+  providerDistribution: ProviderDistributionStat[];
+  modelDistribution: ModelDistributionStat[];
 }
 
+/* =========================================================
+   Recent Activity
+========================================================= */
+
 export interface RecentActivityItem {
-  id: string;
-  type: "user" | "project" | "generation" | "deployment" | "website";
+  id: ID;
+
+  type: ActivityType;
+
   title: string;
   subtitle: string;
   status: string;
-  timestamp: string;
-  userId?: string;
+
+  timestamp: ISODateString;
+
+  userId?: ID;
   userEmail?: string;
-  projectId?: string;
+
+  projectId?: ID;
   projectName?: string;
-  metadata?: Record<string, unknown>;
+
+  metadata?: Record<string, JsonValue>;
+}
+
+/* =========================================================
+   Pagination
+========================================================= */
+
+export interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface RequiredPagination {
+  page: number;
+  pageSize: number;
 }
 
 export interface PaginatedResult<T> {
   items: T[];
+
   total: number;
+
   page: number;
   pageSize: number;
   totalPages: number;
 }
 
+/* =========================================================
+   Date Range
+========================================================= */
+
+export interface DateRangeFilter {
+  from?: ISODateString;
+  to?: ISODateString;
+}
+
+/* =========================================================
+   Filters
+========================================================= */
+
+export interface ProjectFilter {
+  userId?: ID;
+  status?: ProjectStatus;
+  search?: string;
+}
+
+export interface GenerationFilter {
+  userId?: ID;
+  projectId?: ID;
+
+  agent?: string;
+  status?: GenerationStatus;
+
+  provider?: string;
+  model?: string;
+
+  search?: string;
+}
+
+export interface DeploymentFilter {
+  userId?: ID;
+  projectId?: ID;
+
+  provider?: string;
+  status?: DeploymentStatus;
+}
+
+export interface UsageFilter {
+  userId?: ID;
+  provider?: string;
+  model?: string;
+}
+
+/* =========================================================
+   Store Data
+========================================================= */
+
 export interface StoreData {
   users?: UserRecord[];
+
   projects: ProjectRecord[];
+
   deployments?: DeploymentRecord[];
   apiUsage?: ApiUsageRecord[];
   auditLogs?: AdminAuditLogRecord[];
+}
+
+/* =========================================================
+   Admin Query Types
+========================================================= */
+
+export interface AdminListParams
+  extends PaginationParams,
+    DateRangeFilter {
+  search?: string;
+}
+
+export interface AdminProjectListParams
+  extends PaginationParams,
+    DateRangeFilter,
+    ProjectFilter {}
+
+export interface AdminGenerationListParams
+  extends PaginationParams,
+    DateRangeFilter,
+    GenerationFilter {}
+
+export interface AdminDeploymentListParams
+  extends PaginationParams,
+    DateRangeFilter,
+    DeploymentFilter {}
+
+export interface AdminUsageListParams
+  extends PaginationParams,
+    DateRangeFilter,
+    UsageFilter {}
+
+/* =========================================================
+   API Response Types
+========================================================= */
+
+export interface ApiSuccessResponse<T> {
+  success: true;
+  data: T;
+  requestId?: string;
+}
+
+export interface ApiErrorDetail {
+  code: string;
+  message: string;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: ApiErrorDetail;
+  requestId?: string;
+}
+
+export type ApiResponse<T> =
+  | ApiSuccessResponse<T>
+  | ApiErrorResponse;
+
+/* =========================================================
+   Generation Metadata
+========================================================= */
+
+export interface GenerationMetadata {
+  provider?: string;
+  model?: string;
+
+  tokens?: number;
+  durationMs?: number;
+
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+}
+
+/* =========================================================
+   AI Provider Metadata
+========================================================= */
+
+export interface AIProviderMetadata {
+  provider: string;
+  model?: string;
+
+  tokens?: number;
+  estimatedCost?: number;
+
+  requestId?: string;
+
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+
+  durationMs?: number;
+}
+
+/* =========================================================
+   Deployment Result
+========================================================= */
+
+export interface DeploymentResult {
+  id: ID;
+
+  provider: string;
+
+  url?: string;
+  deploymentId?: string;
+
+  status: DeploymentStatus;
+
+  error?: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/* =========================================================
+   API Usage Summary
+========================================================= */
+
+export interface ApiUsageSummary {
+  provider: string;
+  model?: string;
+
+  requestCount: number;
+  totalTokens: number;
+  estimatedCost: number;
+}
+
+/* =========================================================
+   Project Summary
+========================================================= */
+
+export interface ProjectSummary {
+  id: ID;
+
+  name: string;
+  description: string;
+
+  status: ProjectStatus;
+  framework: string;
+
+  websitesCount: number;
+  generationsCount: number;
+  messagesCount: number;
+  deploymentsCount: number;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/* =========================================================
+   Generation Summary
+========================================================= */
+
+export interface GenerationSummary {
+  id: ID;
+
+  projectId?: ID;
+  projectName?: string;
+
+  agent: string;
+  status: GenerationStatus;
+
+  provider?: string;
+  model?: string;
+
+  tokenUsage?: number;
+  durationMs?: number;
+
+  createdAt: ISODateString;
+}
+
+/* =========================================================
+   Deployment Summary
+========================================================= */
+
+export interface DeploymentSummary {
+  id: ID;
+
+  projectId: ID;
+  projectName?: string;
+
+  provider: string;
+  status: DeploymentStatus;
+
+  deploymentUrl?: string;
+  deploymentId?: string;
+
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
 }

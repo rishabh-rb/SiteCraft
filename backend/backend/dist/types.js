@@ -1,2 +1,10 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
+
+export {};
+
+const message: string = "SiteCraft backend is running";
+
+function startBackend(): void {
+  console.log(message);
+}
+
+startBackend();
