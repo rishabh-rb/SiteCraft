@@ -86,7 +86,9 @@ function trimEnv(value: string | undefined): string | undefined {
 }
 
 function boundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(value);
+  const normalized = value?.trim();
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, minimum), maximum);
 }
