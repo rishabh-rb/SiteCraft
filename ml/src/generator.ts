@@ -15,7 +15,7 @@ function sectionHtml(section: ContentBundle["sections"][number], index: number, 
 
   const imageMarkup = image ? `
     <div class="section-image-wrapper">
-      <img class="section-image" src="${escapeHtml(image.url)}" alt="${escapeHtml(image.alt)}" loading="lazy" />
+      <img class="section-image" src="${escapeHtml(image.url)}" alt="${escapeHtml(image.alt || section.title)}" loading="lazy" />
     </div>
   ` : "";
 
