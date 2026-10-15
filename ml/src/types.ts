@@ -19,7 +19,7 @@ export const PlanSchema = z.object({
     foreground: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   }),
   fontFamily: z.string().min(1).max(80),
-  features: z.array(z.string().max(80)).max(20),
+  features: z.array(z.string().min(1).max(80)).max(20),
 });
 
 export type WebsitePlan = z.infer<typeof PlanSchema>;
