@@ -144,16 +144,16 @@ const imageRequestTimeoutMs = 10_000;
 
 function detectCategory(prompt: string, plan: WebsitePlan): string {
   const combined = `${prompt} ${plan.siteName} ${plan.siteDescription} ${plan.theme}`.toLowerCase();
-  if (combined.includes("restaurant") || combined.includes("cafe") || combined.includes("food") || combined.includes("dining") || combined.includes("bakery") || combined.includes("coffee")) {
+  if (["restaurant", "cafe", "food", "dining", "bakery", "coffee"].some((keyword) => containsKeyword(combined, keyword))) {
     return "restaurant";
   }
-  if (combined.includes("portfolio") || combined.includes("resume") || combined.includes("developer") || combined.includes("designer") || combined.includes("personal")) {
+  if (["portfolio", "resume", "developer", "designer", "personal"].some((keyword) => containsKeyword(combined, keyword))) {
     return "portfolio";
   }
-  if (combined.includes("saas") || combined.includes("software") || combined.includes("platform") || combined.includes("cloud") || combined.includes("app") || combined.includes("startup")) {
+  if (["saas", "software", "platform", "cloud", "app", "startup"].some((keyword) => containsKeyword(combined, keyword))) {
     return "saas";
   }
-  if (combined.includes("tech") || combined.includes("code") || combined.includes("ai") || combined.includes("security") || combined.includes("engineer")) {
+  if (["tech", "code", "ai", "security", "engineer"].some((keyword) => containsKeyword(combined, keyword))) {
     return "tech";
   }
   return "default";
@@ -161,6 +161,10 @@ function detectCategory(prompt: string, plan: WebsitePlan): string {
 
 function isHttpUrl(value: string | undefined): value is string {
   return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function containsKeyword(value: string, keyword: string): boolean {
+  return new RegExp(`\\b${keyword}\\b`, "i").test(value);
 }
 
 function cloneAssets(assets: ImageAsset[]): ImageAsset[] {
