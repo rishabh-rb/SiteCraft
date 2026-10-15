@@ -140,6 +140,8 @@ const CURATED_TOPIC_IMAGES: Record<string, ImageAsset[]> = {
   ]
 };
 
+const imageRequestTimeoutMs = 10_000;
+
 function detectCategory(prompt: string, plan: WebsitePlan): string {
   const combined = `${prompt} ${plan.siteName} ${plan.siteDescription} ${plan.theme}`.toLowerCase();
   if (combined.includes("restaurant") || combined.includes("cafe") || combined.includes("food") || combined.includes("dining") || combined.includes("bakery") || combined.includes("coffee")) {
@@ -167,11 +169,19 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
 
   try {
     const query = encodeURIComponent(`${plan.siteName} ${category}`);
-    const response = await fetch(`https://api.unsplash.com/search/photos?query=${query}&per_page=4&orientation=landscape`, {
-      headers: {
-        Authorization: `Client-ID ${accessKey}`
-      }
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), imageRequestTimeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(`https://api.unsplash.com/search/photos?query=${query}&per_page=4&orientation=landscape`, {
+        headers: {
+          Authorization: `Client-ID ${accessKey}`
+        },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       console.warn(`Unsplash API returned status ${response.status}, using curated fallback images.`);
