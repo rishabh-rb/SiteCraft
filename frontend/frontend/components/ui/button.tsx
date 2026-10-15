@@ -69,7 +69,7 @@ function getClassName(
   variant: Variant,
   size: Size,
   fullWidth: boolean,
-  className?: string
+  className?: string,
 ) {
   return [
     base,
@@ -118,7 +118,7 @@ export function Button({
         variant,
         size,
         fullWidth,
-        className
+        className,
       )}
     >
       {loading ? (
@@ -162,7 +162,7 @@ export function ButtonLink({
         variant,
         size,
         fullWidth,
-        className
+        className,
       )}
     >
       {children}
