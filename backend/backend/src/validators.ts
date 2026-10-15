@@ -10,32 +10,48 @@ import {
 } from "./validators.js";
 
 /* =========================================================
+   Helpers
+========================================================= */
+
+const validProject = {
+  name: "Cafe",
+  initialPrompt: "Create a cafe website with a menu",
+};
+
+const validPrompt = {
+  prompt: "Create a modern cafe website",
+};
+
+/* =========================================================
    Framework Validation
 ========================================================= */
 
 test("accepts project without framework", () => {
-  const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
-  });
+  const result = createProjectSchema.safeParse(validProject);
 
   assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.framework, undefined);
+  }
 });
 
 test("accepts a valid framework", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
     framework: "React",
   });
 
   assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.framework, "React");
+  }
 });
 
 test("trims whitespace from framework", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
     framework: "  React  ",
   });
 
@@ -46,30 +62,27 @@ test("trims whitespace from framework", () => {
   }
 });
 
-test("rejects empty framework", () => {
+test("rejects an empty framework", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
     framework: "",
   });
 
   assert.equal(result.success, false);
 });
 
-test("rejects whitespace-only framework", () => {
+test("rejects a whitespace-only framework", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
     framework: "   ",
   });
 
   assert.equal(result.success, false);
 });
 
-test("rejects non-string framework", () => {
+test("rejects a non-string framework", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
     framework: 123,
   });
 
@@ -77,50 +90,58 @@ test("rejects non-string framework", () => {
 });
 
 /* =========================================================
-   Description Validation
+   Project Name Validation
 ========================================================= */
 
-test("defaults missing description to an empty string", () => {
+test("accepts a project name with exactly 2 characters", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
+    name: "AB",
   });
 
   assert.equal(result.success, true);
-
-  if (result.success) {
-    assert.equal(result.data.description, "");
-  }
 });
 
-test("rejects description exceeding 240 characters", () => {
+test("rejects a project name shorter than 2 characters", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    description: "d".repeat(241),
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
+    name: "A",
   });
 
   assert.equal(result.success, false);
 });
 
-test("rejects non-string description", () => {
+test("rejects an empty project name", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
-    description: 123,
-    initialPrompt: "Create a cafe website with a menu",
+    ...validProject,
+    name: "",
   });
 
   assert.equal(result.success, false);
 });
 
-/* =========================================================
-   Custom Error Messages
-========================================================= */
-
-test("returns custom error for invalid project name type", () => {
+test("rejects a whitespace-only project name", () => {
   const result = createProjectSchema.safeParse({
+    ...validProject,
+    name: "   ",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects a non-string project name", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
     name: 123,
-    initialPrompt: "Create a cafe website with a menu",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("returns the custom error for an invalid project name type", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    name: 123,
   });
 
   assert.equal(result.success, false);
@@ -128,16 +149,17 @@ test("returns custom error for invalid project name type", () => {
   if (!result.success) {
     assert.ok(
       result.error.issues.some(
-        (issue) => issue.message === "Project name must be a string",
+        (issue) =>
+          issue.message === "Project name must be a string",
       ),
     );
   }
 });
 
-test("returns custom error for short project name", () => {
+test("returns the custom error for a short project name", () => {
   const result = createProjectSchema.safeParse({
+    ...validProject,
     name: "A",
-    initialPrompt: "Create a cafe website with a menu",
   });
 
   assert.equal(result.success, false);
@@ -153,9 +175,81 @@ test("returns custom error for short project name", () => {
   }
 });
 
-test("returns custom error for short initial prompt", () => {
+/* =========================================================
+   Description Validation
+========================================================= */
+
+test("defaults a missing description to an empty string", () => {
+  const result = createProjectSchema.safeParse(validProject);
+
+  assert.equal(result.success, true);
+
+  if (result.success) {
+    assert.equal(result.data.description, "");
+  }
+});
+
+test("accepts an empty description", () => {
   const result = createProjectSchema.safeParse({
-    name: "Cafe",
+    ...validProject,
+    description: "",
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("accepts a description with exactly 240 characters", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    description: "d".repeat(240),
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("rejects a description exceeding 240 characters", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    description: "d".repeat(241),
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects a non-string description", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    description: 123,
+  });
+
+  assert.equal(result.success, false);
+});
+
+/* =========================================================
+   Initial Prompt Validation
+========================================================= */
+
+test("accepts an initial prompt with exactly 10 characters", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    initialPrompt: "1234567890",
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("rejects an initial prompt shorter than 10 characters", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    initialPrompt: "Short",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("returns the custom error for a short initial prompt", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
     initialPrompt: "Short",
   });
 
@@ -172,7 +266,50 @@ test("returns custom error for short initial prompt", () => {
   }
 });
 
-test("returns custom error for short prompt", () => {
+test("rejects a missing initial prompt", () => {
+  const result = createProjectSchema.safeParse({
+    name: "Cafe",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects a non-string initial prompt", () => {
+  const result = createProjectSchema.safeParse({
+    ...validProject,
+    initialPrompt: 123,
+  });
+
+  assert.equal(result.success, false);
+});
+
+/* =========================================================
+   Prompt Validation
+========================================================= */
+
+test("accepts a valid prompt", () => {
+  const result = promptSchema.safeParse(validPrompt);
+
+  assert.equal(result.success, true);
+});
+
+test("accepts a prompt with exactly 2 characters", () => {
+  const result = promptSchema.safeParse({
+    prompt: "Hi",
+  });
+
+  assert.equal(result.success, true);
+});
+
+test("rejects a prompt shorter than 2 characters", () => {
+  const result = promptSchema.safeParse({
+    prompt: "A",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("returns the custom error for a short prompt", () => {
   const result = promptSchema.safeParse({
     prompt: "A",
   });
@@ -183,46 +320,80 @@ test("returns custom error for short prompt", () => {
     assert.ok(
       result.error.issues.some(
         (issue) =>
-          issue.message === "Prompt must be at least 2 characters",
+          issue.message ===
+          "Prompt must be at least 2 characters",
       ),
     );
   }
 });
 
-/* =========================================================
-   Type Guard Tests
-========================================================= */
+test("rejects an empty prompt", () => {
+  const result = promptSchema.safeParse({
+    prompt: "",
+  });
 
-test("isValidProjectInput returns true for valid input", () => {
-  assert.equal(
-    isValidProjectInput({
-      name: "Cafe",
-      initialPrompt: "Create a cafe website with a menu",
-    }),
-    true,
-  );
+  assert.equal(result.success, false);
 });
 
-test("isValidProjectInput returns false for invalid input", () => {
+test("rejects a whitespace-only prompt", () => {
+  const result = promptSchema.safeParse({
+    prompt: "   ",
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects a non-string prompt", () => {
+  const result = promptSchema.safeParse({
+    prompt: 123,
+  });
+
+  assert.equal(result.success, false);
+});
+
+test("rejects a missing prompt", () => {
+  const result = promptSchema.safeParse({});
+  
+  assert.equal(result.success, false);
+});
+
+/* =========================================================
+   Project Type Guard Tests
+========================================================= */
+
+test("isValidProjectInput accepts valid project input", () => {
+  assert.equal(isValidProjectInput(validProject), true);
+});
+
+test("isValidProjectInput rejects an empty project name", () => {
   assert.equal(
     isValidProjectInput({
+      ...validProject,
       name: "",
-      initialPrompt: "Create a cafe website with a menu",
     }),
     false,
   );
 });
 
-test("isValidPromptInput returns true for valid input", () => {
+test("isValidProjectInput rejects a short initial prompt", () => {
   assert.equal(
-    isValidPromptInput({
-      prompt: "Create a modern cafe website",
+    isValidProjectInput({
+      ...validProject,
+      initialPrompt: "Short",
     }),
-    true,
+    false,
   );
 });
 
-test("isValidPromptInput returns false for invalid input", () => {
+/* =========================================================
+   Prompt Type Guard Tests
+========================================================= */
+
+test("isValidPromptInput accepts valid prompt input", () => {
+  assert.equal(isValidPromptInput(validPrompt), true);
+});
+
+test("isValidPromptInput rejects an empty prompt", () => {
   assert.equal(
     isValidPromptInput({
       prompt: "",
@@ -230,6 +401,19 @@ test("isValidPromptInput returns false for invalid input", () => {
     false,
   );
 });
+
+test("isValidPromptInput rejects a one-character prompt", () => {
+  assert.equal(
+    isValidPromptInput({
+      prompt: "A",
+    }),
+    false,
+  );
+});
+
+/* =========================================================
+   Invalid Input Type Guard Tests
+========================================================= */
 
 test("type guards reject null and primitive inputs", () => {
   const invalidInputs: unknown[] = [
@@ -245,4 +429,14 @@ test("type guards reject null and primitive inputs", () => {
     assert.equal(isValidProjectInput(input), false);
     assert.equal(isValidPromptInput(input), false);
   }
+});
+
+test("type guards reject objects with missing required fields", () => {
+  assert.equal(isValidProjectInput({}), false);
+  assert.equal(isValidPromptInput({}), false);
+});
+
+test("type guards reject arrays", () => {
+  assert.equal(isValidProjectInput([]), false);
+  assert.equal(isValidPromptInput([]), false);
 });
