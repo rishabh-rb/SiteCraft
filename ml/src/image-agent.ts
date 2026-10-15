@@ -159,6 +159,10 @@ function detectCategory(prompt: string, plan: WebsitePlan): string {
   return "default";
 }
 
+function isHttpUrl(value: string | undefined): value is string {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
 export async function generateImages(prompt: string, plan: WebsitePlan, accessKey?: string): Promise<ImageAsset[]> {
   const category = detectCategory(prompt, plan);
   const fallbackAssets = CURATED_TOPIC_IMAGES[category] || CURATED_TOPIC_IMAGES.default;
@@ -206,7 +210,7 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
       kind: kinds[idx] || `asset-${idx + 1}`,
       description: item.description || item.alt_description || `${plan.siteName} visual`,
       alt: item.alt_description || item.description || `${plan.siteName} illustration`,
-      url: item.urls?.regular || fallbackAssets[idx]?.url || fallbackAssets[0].url
+      url: isHttpUrl(item.urls?.regular) ? item.urls.regular : fallbackAssets[idx]?.url || fallbackAssets[0].url
     }));
   } catch (error) {
     console.warn("Unsplash API fetch failed, falling back to curated assets:", error);
