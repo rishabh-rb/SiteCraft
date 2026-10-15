@@ -20,12 +20,12 @@ function sectionHtml(section: ContentBundle["sections"][number], index: number, 
   ` : "";
 
   return `
-    <section class="content-section" id="section-${index + 1}" aria-label="${escapeHtml(section.title)}">
+    <section class="content-section" id="section-${index + 1}" aria-labelledby="section-heading-${index + 1}">
       <div class="container">
         <div class="section-header-grid ${image ? 'has-image' : ''}">
           <div class="section-text">
             <span class="eyebrow">${escapeHtml(section.title.toUpperCase())}</span>
-            <h2 class="section-heading">${escapeHtml(section.title)}</h2>
+            <h2 class="section-heading" id="section-heading-${index + 1}">${escapeHtml(section.title)}</h2>
             <p class="section-body">${escapeHtml(section.body)}</p>
           </div>
           ${imageMarkup}
