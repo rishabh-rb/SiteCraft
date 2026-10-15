@@ -1,1077 +1,171 @@
 
-"use client";
-
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type { ComponentType } from "react";
-import {
-  AlertTriangle,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  CircleDot,
-  Clock3,
-  Code2,
-  Copy,
-  FileCode2,
-  FileText,
-  Layers3,
-  Layout,
-  Loader2,
-  ShieldCheck,
-  Sparkles,
-  Terminal,
-  Zap,
-} from "lucide-react";
 import type {
-  GeneratedWebsite,
-  GenerationStep,
-} from "@/lib/api";
+  AnchorHTMLAttributes,
+  ButtonHTMLAttributes,
+  ReactNode,
+} from "react";
+import Link from "next/link";
+import { Loader2 } from "lucide-react";
 
-interface GenerationProgressProps {
-  generations: GenerationStep[];
-  website?: GeneratedWebsite;
-  working: boolean;
-}
+const variants = {
+  primary:
+    "bg-ink text-white shadow-sm hover:bg-black hover:shadow-md",
+  accent:
+    "bg-accent text-white shadow-sm hover:bg-[#cf4f38] hover:shadow-md",
+  outline:
+    "border border-ink/15 bg-white/80 text-ink shadow-sm hover:border-ink/25 hover:bg-white hover:shadow-md",
+  ghost:
+    "text-ink/70 hover:bg-black/[0.05] hover:text-ink",
+  secondary:
+    "bg-ink/[0.06] text-ink shadow-sm hover:bg-ink/[0.10] hover:shadow-md",
+  danger:
+    "bg-red-500 text-white shadow-sm hover:bg-red-600 hover:shadow-md",
+  teal:
+    "bg-teal text-white shadow-sm hover:bg-teal/90 hover:shadow-md",
+  subtle:
+    "border border-line bg-paper text-ink/75 shadow-sm hover:border-ink/15 hover:bg-white hover:text-ink",
+} as const;
 
-type AgentStatus = "completed" | "running" | "pending";
+type Variant = keyof typeof variants;
 
-interface AgentMeta {
-  label: string;
-  shortLabel: string;
-  description: string;
-  detail: string;
-  icon: ComponentType<{ className?: string }>;
-}
+const sizes = {
+  sm: "h-8 min-w-8 rounded-md px-3 text-xs",
+  md: "h-10 min-w-10 rounded-lg px-4 text-sm",
+  lg: "h-11 min-w-11 rounded-lg px-5 text-sm",
+  xl: "h-12 min-w-12 rounded-xl px-6 text-base",
+} as const;
 
-interface PipelineItem {
-  agentKey: string;
-  index: number;
-  stepGen?: GenerationStep;
-  status: AgentStatus;
-}
+type Size = keyof typeof sizes;
 
-const PIPELINE_AGENTS = [
-  "planner",
-  "content",
-  "ui-designer",
-  "code",
-  "qa",
-] as const;
+const base =
+  "relative inline-flex shrink-0 items-center justify-center gap-2 " +
+  "whitespace-nowrap font-semibold select-none " +
+  "transition-[background-color,border-color,color,box-shadow,transform] " +
+  "duration-200 ease-out " +
+  "focus-visible:outline-none focus-visible:ring-2 " +
+  "focus-visible:ring-accent/40 focus-visible:ring-offset-2 " +
+  "disabled:pointer-events-none disabled:cursor-not-allowed " +
+  "disabled:opacity-50 " +
+  "motion-reduce:transform-none motion-reduce:transition-none " +
+  "active:scale-[0.98]";
 
-const AGENT_META: Record<string, AgentMeta> = {
-  planner: {
-    label: "Planner Agent",
-    shortLabel: "Planning",
-    description:
-      "Analyzes the prompt and creates the site structure, pages, theme, and feature roadmap.",
-    detail:
-      "Understanding requirements and building the project blueprint",
-    icon: Sparkles,
-  },
-  content: {
-    label: "Content Agent",
-    shortLabel: "Content",
-    description:
-      "Generates headlines, descriptions, features, testimonials, and SEO-ready content.",
-    detail: "Creating polished website content and copy",
-    icon: FileText,
-  },
-  "ui-designer": {
-    label: "UI Designer Agent",
-    shortLabel: "UI Design",
-    description:
-      "Creates the layout system, component hierarchy, typography, and design tokens.",
-    detail: "Designing the visual system and component structure",
-    icon: Layout,
-  },
-  code: {
-    label: "Code Generation Agent",
-    shortLabel: "Code",
-    description:
-      "Builds React components, Tailwind styles, and the generated project file structure.",
-    detail: "Generating React and Tailwind code",
-    icon: Code2,
-  },
-  qa: {
-    label: "QA Agent",
-    shortLabel: "QA",
-    description:
-      "Checks responsiveness, accessibility, SEO, broken links, and generated output quality.",
-    detail: "Running quality, accessibility, and consistency checks",
-    icon: ShieldCheck,
-  },
+const spinnerSizes: Record<Size, string> = {
+  sm: "h-3 w-3",
+  md: "h-4 w-4",
+  lg: "h-4 w-4",
+  xl: "h-5 w-5",
 };
 
-const FALLBACK_AGENT: AgentMeta = {
-  label: "AI Agent",
-  shortLabel: "Agent",
-  description: "Processes part of the website generation workflow.",
-  detail: "Processing the current task",
-  icon: Sparkles,
-};
-
-const LANGUAGE_MAP: Record<string, string> = {
-  ts: "TypeScript",
-  tsx: "TSX",
-  js: "JavaScript",
-  jsx: "JSX",
-  mjs: "JavaScript",
-  cjs: "JavaScript",
-  css: "CSS",
-  scss: "SCSS",
-  html: "HTML",
-  htm: "HTML",
-  json: "JSON",
-  md: "Markdown",
-  mdx: "MDX",
-  py: "Python",
-  sql: "SQL",
-  yaml: "YAML",
-  yml: "YAML",
-  svg: "SVG",
-  xml: "XML",
-  sh: "Shell",
-  bash: "Shell",
-  tsx: "TSX",
-  vue: "Vue",
-  svelte: "Svelte",
-  prisma: "Prisma",
-  env: "Environment",
-};
-
-function getAgentMeta(agentKey: string): AgentMeta {
+function Spinner({ size = "md" }: { size?: Size }) {
   return (
-    AGENT_META[agentKey] ?? {
-      ...FALLBACK_AGENT,
-      label: agentKey
-        .split(/[-_\s]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" "),
-      shortLabel: agentKey,
-    }
+    <Loader2
+      aria-hidden="true"
+      className={`${spinnerSizes[size]} shrink-0 animate-spin motion-reduce:animate-none`}
+    />
   );
 }
 
-function getFileName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
+function getClassName(
+  variant: Variant,
+  size: Size,
+  fullWidth: boolean,
+  className?: string,
+) {
+  return [
+    base,
+    sizes[size],
+    variants[variant],
+    fullWidth ? "w-full" : "",
+    className ?? "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function getLanguage(path: string): string {
-  const fileName = getFileName(path);
-  const dotIndex = fileName.lastIndexOf(".");
-  const extension =
-    dotIndex > 0
-      ? fileName.slice(dotIndex + 1).toLowerCase()
-      : fileName.toLowerCase();
-
-  return LANGUAGE_MAP[extension] ?? "Code";
+interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: Variant;
+  size?: Size;
+  loading?: boolean;
+  loadingText?: string;
+  fullWidth?: boolean;
+  children: ReactNode;
 }
 
-function formatDuration(duration: unknown): string | null {
-  if (typeof duration === "number" && Number.isFinite(duration)) {
-    if (duration < 0) return null;
-
-    return duration >= 1000
-      ? `${(duration / 1000).toFixed(1)}s`
-      : `${Math.round(duration)}ms`;
-  }
-
-  if (typeof duration === "string" && duration.trim()) {
-    return duration.trim();
-  }
-
-  return null;
-}
-
-function safeSerialize(value: unknown): string {
-  try {
-    const result = JSON.stringify(value, null, 2);
-    return result ?? String(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function getStatus(
-  step: GenerationStep | undefined,
-  index: number,
-  generationsByAgent: Map<string, GenerationStep>,
-  working: boolean,
-): AgentStatus {
-  if (step?.status === "completed") {
-    return "completed";
-  }
-
-  if (step?.status === "started") {
-    return "running";
-  }
-
-  if (!working) {
-    return "pending";
-  }
-
-  const previousStagesCompleted = PIPELINE_AGENTS.slice(0, index).every(
-    (agent) =>
-      generationsByAgent.get(agent)?.status === "completed",
-  );
-
-  return previousStagesCompleted ? "running" : "pending";
-}
-
-function getOutput(
-  agentKey: string,
-  website?: GeneratedWebsite,
-  step?: GenerationStep,
-): unknown {
-  switch (agentKey) {
-    case "planner":
-      return website?.plan ?? step?.output ?? null;
-
-    case "content":
-      if (website?.plan) {
-        return {
-          heroTitle: website.plan.siteName,
-          description: website.plan.siteDescription,
-          features: website.plan.features,
-        };
-      }
-      return step?.output ?? null;
-
-    case "ui-designer":
-      if (website?.plan) {
-        return {
-          theme: website.plan.theme,
-          colorPalette: website.plan.colorPalette,
-          fontFamily: website.plan.fontFamily,
-        };
-      }
-      return step?.output ?? null;
-
-    case "code":
-      if (website?.files) {
-        return {
-          fileCount: website.files.length,
-          files: website.files.map((file) => file.path),
-        };
-      }
-      return step?.output ?? null;
-
-    case "qa":
-      return website?.qa ?? step?.output ?? null;
-
-    default:
-      return step?.output ?? null;
-  }
-}
-
-function StatusBadge({ status }: { status: AgentStatus }) {
-  const styles: Record<AgentStatus, string> = {
-    completed:
-      "border-emerald-200 bg-emerald-50 text-emerald-700",
-    running:
-      "border-teal/20 bg-teal/10 text-teal",
-    pending:
-      "border-line bg-ink/[0.025] text-ink/35",
-  };
+export function Button({
+  variant = "primary",
+  size = "md",
+  className,
+  type = "button",
+  loading = false,
+  loadingText = "Loading...",
+  fullWidth = false,
+  children,
+  disabled,
+  "aria-label": ariaLabel,
+  ...props
+}: ButtonProps) {
+  const isDisabled = Boolean(disabled || loading);
 
   return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[8px] font-bold uppercase tracking-wider ${styles[status]}`}
+    <button
+      {...props}
+      type={type}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
+      aria-label={ariaLabel}
+      className={getClassName(
+        variant,
+        size,
+        fullWidth,
+        className,
+      )}
     >
-      {status === "completed" ? (
-        <Check className="h-2.5 w-2.5" strokeWidth={3} />
-      ) : status === "running" ? (
-        <Loader2 className="h-2.5 w-2.5 animate-spin motion-reduce:animate-none" />
+      {loading ? (
+        <>
+          <Spinner size={size} />
+          <span>{loadingText}</span>
+        </>
       ) : (
-        <Clock3 className="h-2.5 w-2.5" />
+        children
       )}
-
-      {status === "completed"
-        ? "Done"
-        : status === "running"
-          ? "Running"
-          : "Waiting"}
-    </span>
+    </button>
   );
 }
 
-function SectionHeading({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2.5">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink/[0.04]">
-        <Icon className="h-3.5 w-3.5 text-ink/50" />
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-[0.1em] text-ink/60">
-          {title}
-        </p>
-        <p className="mt-0.5 truncate text-[8px] text-ink/40">
-          {description}
-        </p>
-      </div>
-    </div>
-  );
+interface ButtonLinkProps
+  extends Omit<
+    AnchorHTMLAttributes<HTMLAnchorElement>,
+    "href"
+  > {
+  variant?: Variant;
+  size?: Size;
+  href: string;
+  fullWidth?: boolean;
+  children: ReactNode;
 }
 
-function OutputPanel({
-  agentKey,
-  output,
-  status,
-  meta,
-}: {
-  agentKey: string;
-  output: unknown;
-  status: AgentStatus;
-  meta: AgentMeta;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-
-  const serializedOutput = useMemo(
-    () => safeSerialize(output),
-    [output],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current !== null) {
-        clearTimeout(copyTimerRef.current);
-      }
-
-      if (errorTimerRef.current !== null) {
-        clearTimeout(errorTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = useCallback(async () => {
-    if (output === null || output === undefined) return;
-
-    if (copyTimerRef.current !== null) {
-      clearTimeout(copyTimerRef.current);
-    }
-
-    if (errorTimerRef.current !== null) {
-      clearTimeout(errorTimerRef.current);
-    }
-
-    setCopied(false);
-    setCopyFailed(false);
-
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("Clipboard API unavailable");
-      }
-
-      await navigator.clipboard.writeText(serializedOutput);
-      setCopied(true);
-
-      copyTimerRef.current = setTimeout(() => {
-        setCopied(false);
-        copyTimerRef.current = null;
-      }, 1600);
-    } catch {
-      setCopyFailed(true);
-
-      errorTimerRef.current = setTimeout(() => {
-        setCopyFailed(false);
-        errorTimerRef.current = null;
-      }, 2200);
-    }
-  }, [output, serializedOutput]);
-
-  const hasOutput = output !== null && output !== undefined;
-
+export function ButtonLink({
+  variant = "primary",
+  size = "md",
+  className,
+  href,
+  fullWidth = false,
+  children,
+  ...props
+}: ButtonLinkProps) {
   return (
-    <div className="border-t border-line">
-      <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-[#101010] px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-teal/10">
-            <Terminal className="h-2.5 w-2.5 text-teal" />
-          </div>
-
-          <div className="min-w-0">
-            <p className="truncate text-[8px] font-black uppercase tracking-wider text-white/70">
-              Agent Output
-            </p>
-            <p className="truncate font-mono text-[7px] text-white/30">
-              {agentKey}
-            </p>
-          </div>
-        </div>
-
-        {hasOutput && (
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2 text-[8px] font-bold text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
-            aria-label={`Copy ${meta.label} output`}
-          >
-            {copied ? (
-              <>
-                <Check className="h-3 w-3 text-teal" />
-                Copied
-              </>
-            ) : copyFailed ? (
-              <>
-                <AlertTriangle className="h-3 w-3 text-rose-400" />
-                Failed
-              </>
-            ) : (
-              <>
-                <Copy className="h-3 w-3" />
-                Copy
-              </>
-            )}
-          </button>
-        )}
-      </div>
-
-      <div className="max-h-72 overflow-auto bg-[#0b0b0b]">
-        {hasOutput ? (
-          <>
-            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-white/[0.04] bg-[#0b0b0b]/95 px-3 py-1.5 backdrop-blur">
-              <CircleDot className="h-2.5 w-2.5 text-teal/70" />
-              <span className="font-mono text-[7px] text-white/30">
-                output.json
-              </span>
-            </div>
-
-            <pre className="whitespace-pre-wrap break-words px-3 py-3 font-mono text-[9px] leading-[1.7] text-white/65">
-              {serializedOutput}
-            </pre>
-          </>
-        ) : (
-          <div className="flex min-h-24 items-center justify-center px-4">
-            <div className="text-center">
-              {status === "running" ? (
-                <Loader2 className="mx-auto h-4 w-4 animate-spin text-teal/60 motion-reduce:animate-none" />
-              ) : (
-                <Clock3 className="mx-auto h-4 w-4 text-white/20" />
-              )}
-
-              <p className="mt-2 text-[8px] text-white/35">
-                {status === "running"
-                  ? "Agent is processing. Output will appear when available."
-                  : "No output available for this stage yet."}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function GenerationProgress({
-  generations,
-  website,
-  working,
-}: GenerationProgressProps) {
-  const idPrefix = useId();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const generationsByAgent = useMemo(() => {
-    const map = new Map<string, GenerationStep>();
-
-    for (const generation of generations) {
-      map.set(generation.agent, generation);
-    }
-
-    return map;
-  }, [generations]);
-
-  const pipeline = useMemo<PipelineItem[]>(
-    () =>
-      PIPELINE_AGENTS.map((agentKey, index) => {
-        const stepGen = generationsByAgent.get(agentKey);
-
-        return {
-          agentKey,
-          index,
-          stepGen,
-          status: getStatus(
-            stepGen,
-            index,
-            generationsByAgent,
-            working,
-          ),
-        };
-      }),
-    [generationsByAgent, working],
-  );
-
-  const completedCount = useMemo(
-    () =>
-      pipeline.filter((item) => item.status === "completed").length,
-    [pipeline],
-  );
-
-  const progressPercentage = Math.round(
-    (completedCount / PIPELINE_AGENTS.length) * 100,
-  );
-
-  const currentAgent = pipeline.find(
-    (item) => item.status === "running",
-  );
-
-  const hasStarted =
-    generations.length > 0 || Boolean(website);
-
-  const isComplete =
-    !working &&
-    Boolean(website) &&
-    completedCount === PIPELINE_AGENTS.length;
-
-  const websiteFiles = website?.files ?? [];
-  const qa = website?.qa;
-  const qaIssues = qa?.issues ?? [];
-
-  const qaScore =
-    typeof qa?.score === "number" && Number.isFinite(qa.score)
-      ? Math.min(100, Math.max(0, qa.score))
-      : 0;
-
-  const toggleExpand = useCallback((agentKey: string) => {
-    setExpandedId((previous) =>
-      previous === agentKey ? null : agentKey,
-    );
-  }, []);
-
-  return (
-    <section
-      className="overflow-hidden rounded-2xl border border-line bg-paper shadow-[0_8px_30px_rgba(15,23,42,0.05)]"
-      aria-label="AI generation progress"
-      aria-busy={working}
+    <Link
+      href={href}
+      {...props}
+      className={getClassName(
+        variant,
+        size,
+        fullWidth,
+        className,
+      )}
     >
-      {/* Pipeline header */}
-      <div className="border-b border-line bg-paper px-4 py-4 sm:px-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-teal/15 bg-teal/[0.08]">
-              {working && (
-                <span
-                  aria-hidden="true"
-                  className="absolute inset-0 animate-ping rounded-xl bg-teal/10 motion-reduce:animate-none"
-                />
-              )}
-              <Sparkles className="relative h-5 w-5 text-teal" />
-            </div>
-
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-sm font-black tracking-tight text-ink">
-                  AI Generation Pipeline
-                </h3>
-
-                {working && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-teal/15 bg-teal/5 px-2 py-0.5 text-[7px] font-black uppercase tracking-wider text-teal">
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-teal motion-reduce:animate-none" />
-                    Live
-                  </span>
-                )}
-
-                {isComplete && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[7px] font-black uppercase tracking-wider text-emerald-700">
-                    <Check className="h-2.5 w-2.5" />
-                    Complete
-                  </span>
-                )}
-              </div>
-
-              <p className="mt-1 text-[9px] text-ink/45">
-                {working
-                  ? "Multiple AI agents are working together"
-                  : isComplete
-                    ? "All generation stages have finished"
-                    : hasStarted
-                      ? "Generation process status"
-                      : "Multi-agent website generation workflow"}
-              </p>
-            </div>
-          </div>
-
-          <div className="shrink-0 text-right">
-            <div className="flex items-end justify-end gap-1">
-              <span className="text-base font-black leading-none text-ink">
-                {completedCount}
-              </span>
-              <span className="mb-px text-[10px] font-semibold text-ink/30">
-                / {PIPELINE_AGENTS.length}
-              </span>
-            </div>
-            <p className="mt-1 text-[7px] font-bold uppercase tracking-wider text-ink/35">
-              Stages
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="text-[8px] font-bold uppercase tracking-wider text-ink/40">
-                Pipeline
-              </span>
-
-              {currentAgent && (
-                <span className="truncate text-[8px] font-semibold text-teal">
-                  {getAgentMeta(currentAgent.agentKey).shortLabel}
-                </span>
-              )}
-            </div>
-
-            <span className="text-[9px] font-black text-teal">
-              {progressPercentage}%
-            </span>
-          </div>
-
-          <div
-            className="relative h-1.5 overflow-hidden rounded-full bg-ink/[0.06]"
-            role="progressbar"
-            aria-label="Completed generation stages"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progressPercentage}
-          >
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-teal to-teal/70 transition-[width] duration-700 ease-out"
-              style={{ width: `${progressPercentage}%` }}
-            />
-            {working && (
-              <div className="absolute inset-y-0 left-0 w-20 animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent motion-reduce:animate-none" />
-            )}
-          </div>
-
-          <div
-            className="mt-2.5 flex items-center gap-1"
-            aria-hidden="true"
-          >
-            {pipeline.map((item) => (
-              <div
-                key={item.agentKey}
-                className={`h-1 flex-1 rounded-full transition-colors duration-500 ${
-                  item.status === "completed"
-                    ? "bg-teal"
-                    : item.status === "running"
-                      ? "animate-pulse bg-teal/50 motion-reduce:animate-none"
-                      : "bg-ink/[0.08]"
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-
-        {working && currentAgent && (
-          <div
-            className="mt-4 flex items-center gap-3 rounded-xl border border-teal/15 bg-teal/[0.035] px-3 py-2.5"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal/10">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-teal motion-reduce:animate-none" />
-            </div>
-
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[9px] font-black text-teal">
-                {getAgentMeta(currentAgent.agentKey).label}
-              </p>
-              <p className="mt-0.5 truncate text-[8px] text-ink/40">
-                {getAgentMeta(currentAgent.agentKey).detail}
-              </p>
-            </div>
-
-            <Zap className="h-3.5 w-3.5 shrink-0 text-teal/50" />
-          </div>
-        )}
-      </div>
-
-      {/* Agent stages */}
-      <div className="px-3 py-3 sm:px-4 sm:py-4">
-        <div className="space-y-2">
-          {pipeline.map(({ agentKey, index, stepGen, status }) => {
-            const meta = getAgentMeta(agentKey);
-            const Icon = meta.icon;
-            const isExpanded = expandedId === agentKey;
-            const output = getOutput(agentKey, website, stepGen);
-            const hasOutput =
-              output !== null && output !== undefined;
-            const duration = formatDuration(stepGen?.duration);
-            const outputId = `${idPrefix}-output-${agentKey}`;
-
-            return (
-              <article
-                key={agentKey}
-                className={`relative overflow-hidden rounded-xl border transition-colors duration-200 ${
-                  status === "running"
-                    ? "border-teal/25 bg-teal/[0.025] shadow-[0_4px_20px_rgba(20,184,166,0.06)]"
-                    : status === "completed"
-                      ? "border-line bg-paper"
-                      : "border-line bg-ink/[0.012]"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(agentKey)}
-                  aria-expanded={isExpanded}
-                  aria-controls={outputId}
-                  className="group flex w-full items-center gap-3 p-3 text-left outline-none transition-colors hover:bg-ink/[0.025] focus-visible:ring-2 focus-visible:ring-teal/30 focus-visible:ring-inset sm:p-3.5"
-                >
-                  <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[9px] font-black transition-colors ${
-                      status === "completed"
-                        ? "border-teal/20 bg-teal/10 text-teal"
-                        : status === "running"
-                          ? "border-teal/20 bg-teal text-white shadow-[0_0_0_4px_rgba(20,184,166,0.08)]"
-                          : "border-line bg-paper text-ink/30"
-                    }`}
-                  >
-                    {status === "running" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-                    ) : status === "completed" ? (
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    ) : (
-                      index + 1
-                    )}
-                  </div>
-
-                  <div
-                    className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:flex ${
-                      status === "running"
-                        ? "bg-teal/10 text-teal"
-                        : status === "completed"
-                          ? "bg-ink/[0.04] text-ink/50"
-                          : "bg-ink/[0.03] text-ink/30"
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p
-                        className={`truncate text-[10px] font-black sm:text-[11px] ${
-                          status === "running"
-                            ? "text-teal"
-                            : status === "completed"
-                              ? "text-ink"
-                              : "text-ink/60"
-                        }`}
-                      >
-                        {meta.label}
-                      </p>
-
-                      {duration && status === "completed" && (
-                        <span className="hidden shrink-0 items-center gap-1 text-[8px] text-ink/35 md:inline-flex">
-                          <Clock3 className="h-2.5 w-2.5" />
-                          {duration}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="mt-0.5 hidden truncate text-[8px] leading-4 text-ink/40 sm:block">
-                      {meta.description}
-                    </p>
-
-                    <p
-                      className={`mt-0.5 truncate text-[8px] sm:hidden ${
-                        status === "running"
-                          ? "text-teal/70"
-                          : "text-ink/40"
-                      }`}
-                    >
-                      {status === "running"
-                        ? meta.detail
-                        : meta.shortLabel}
-                    </p>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <StatusBadge status={status} />
-
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md transition-colors group-hover:bg-ink/[0.04]">
-                      {isExpanded ? (
-                        <ChevronDown className="h-3.5 w-3.5 text-ink/40" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5 text-ink/30 transition-transform group-hover:translate-x-0.5" />
-                      )}
-                    </span>
-                  </div>
-                </button>
-
-                {isExpanded && (
-                  <OutputPanel
-                    agentKey={agentKey}
-                    output={hasOutput ? output : null}
-                    status={status}
-                    meta={meta}
-                  />
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Generated files */}
-      {websiteFiles.length > 0 && (
-        <div className="border-t border-line px-4 py-3">
-          <SectionHeading
-            icon={FileCode2}
-            title="Generated Project"
-            description={`${websiteFiles.length} source ${
-              websiteFiles.length === 1 ? "file" : "files"
-            } generated`}
-          />
-
-          <div className="mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-auto">
-            {websiteFiles.slice(0, 8).map((file) => (
-              <div
-                key={file.path}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-ink/[0.02] px-2 py-1.5"
-                title={file.path}
-              >
-                <FileText className="h-2.5 w-2.5 shrink-0 text-ink/35" />
-
-                <span className="max-w-[150px] truncate font-mono text-[8px] text-ink/55">
-                  {getFileName(file.path)}
-                </span>
-
-                <span className="hidden text-[7px] text-ink/30 sm:inline">
-                  {getLanguage(file.path)}
-                </span>
-              </div>
-            ))}
-
-            {websiteFiles.length > 8 && (
-              <span className="inline-flex items-center rounded-md bg-ink/[0.03] px-2 py-1.5 text-[8px] font-bold text-ink/40">
-                +{websiteFiles.length - 8} more
-              </span>
-            )}
-          </div>
-
-          <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
-            <span className="text-[8px] text-ink/40">
-              Project structure
-            </span>
-
-            <span className="inline-flex items-center gap-1.5 text-[8px] font-semibold text-ink/45">
-              <Layers3 className="h-3 w-3" />
-              {websiteFiles.length}{" "}
-              {websiteFiles.length === 1 ? "file" : "files"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Quality assurance */}
-      {qa && (
-        <div className="border-t border-line px-4 py-3 sm:px-5">
-          <div
-            className={`overflow-hidden rounded-xl border ${
-              qa.passed
-                ? "border-emerald-200 bg-emerald-50/60"
-                : "border-amber-200 bg-amber-50/60"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-4 px-3.5 py-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                    qa.passed ? "bg-emerald-100" : "bg-amber-100"
-                  }`}
-                >
-                  <ShieldCheck
-                    className={`h-4 w-4 ${
-                      qa.passed
-                        ? "text-emerald-600"
-                        : "text-amber-600"
-                    }`}
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p
-                      className={`text-[10px] font-black uppercase tracking-wider ${
-                        qa.passed
-                          ? "text-emerald-800"
-                          : "text-amber-800"
-                      }`}
-                    >
-                      QA Verification
-                    </p>
-
-                    {qa.passed && (
-                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                    )}
-                  </div>
-
-                  <p className="mt-0.5 truncate text-[8px] text-ink/45">
-                    Quality and accessibility assessment
-                  </p>
-                </div>
-              </div>
-
-              <div className="shrink-0 text-right">
-                <span
-                  className={`text-xl font-black leading-none ${
-                    qa.passed
-                      ? "text-emerald-700"
-                      : "text-amber-700"
-                  }`}
-                >
-                  {qaScore}
-                </span>
-                <span className="ml-0.5 text-[8px] font-bold text-ink/35">
-                  /100
-                </span>
-              </div>
-            </div>
-
-            <div className="px-3.5 pb-3">
-              <div
-                className="h-1.5 overflow-hidden rounded-full bg-black/[0.06]"
-                role="progressbar"
-                aria-label="QA score"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={qaScore}
-              >
-                <div
-                  className={`h-full rounded-full transition-[width] duration-700 ${
-                    qa.passed
-                      ? "bg-emerald-500"
-                      : "bg-amber-500"
-                  }`}
-                  style={{ width: `${qaScore}%` }}
-                />
-              </div>
-            </div>
-
-            <div
-              className={`flex items-center gap-2 border-t px-3.5 py-2.5 ${
-                qa.passed
-                  ? "border-emerald-200/70"
-                  : "border-amber-200/70"
-              }`}
-            >
-              {qa.passed ? (
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-              ) : (
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-              )}
-
-              <span
-                className={`text-[8px] font-bold ${
-                  qa.passed
-                    ? "text-emerald-700"
-                    : "text-amber-700"
-                }`}
-              >
-                {qa.passed
-                  ? "All quality checks passed successfully"
-                  : "Some checks require attention"}
-              </span>
-            </div>
-
-            {qaIssues.length > 0 && (
-              <div className="border-t border-black/[0.05] px-3.5 py-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <AlertTriangle className="h-3 w-3 text-amber-600" />
-
-                  <p className="text-[8px] font-black uppercase tracking-wider text-ink/45">
-                    Issues detected
-                  </p>
-
-                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[7px] font-bold text-amber-700">
-                    {qaIssues.length}
-                  </span>
-                </div>
-
-                <div className="space-y-1.5">
-                  {qaIssues.map((issue, index) => (
-                    <div
-                      key={`${issue.message}-${index}`}
-                      className="flex items-start gap-2 rounded-lg border border-black/[0.03] bg-white/50 px-2.5 py-2"
-                    >
-                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
-
-                      <p className="min-w-0 break-words text-[9px] leading-4 text-ink/65">
-                        <span className="mr-1.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-[7px] font-black uppercase text-amber-700">
-                          {issue.severity}
-                        </span>
-                        {issue.message}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!hasStarted && (
-        <div className="border-t border-line px-4 py-8">
-          <div className="mx-auto max-w-xs text-center">
-            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-ink/[0.04]">
-              <Sparkles className="h-4 w-4 text-ink/30" />
-            </div>
-
-            <p className="mt-3 text-[10px] font-bold text-ink/50">
-              Waiting for generation
-            </p>
-
-            <p className="mt-1 text-[8px] leading-4 text-ink/35">
-              Your AI agents will appear here as soon as the generation
-              process begins.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Completion state */}
-      {isComplete && (
-        <div className="border-t border-emerald-200/60 bg-emerald-50/50 px-4 py-3">
-          <div className="flex items-center justify-center gap-2">
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100">
-              <Check
-                className="h-3 w-3 text-emerald-600"
-                strokeWidth={3}
-              />
-            </div>
-
-            <span className="text-center text-[8px] font-black uppercase tracking-wider text-emerald-700">
-              Website generated successfully
-            </span>
-          </div>
-        </div>
-      )}
-    </section>
+      {children}
+    </Link>
   );
 }
