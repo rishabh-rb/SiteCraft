@@ -82,7 +82,8 @@ export function createLocalDesign(plan: WebsitePlan): DesignSystem {
 }
 
 export function createLocalContent(plan: WebsitePlan, prompt: string): ContentBundle {
-  const lower = prompt.toLowerCase();
+  const normalizedPrompt = prompt.trim();
+  const lower = normalizedPrompt.toLowerCase();
   const isPortfolio = plan.siteName.toLowerCase().includes("portfolio") || lower.includes("portfolio") || lower.includes("engineer");
 
   return {
@@ -91,7 +92,7 @@ export function createLocalContent(plan: WebsitePlan, prompt: string): ContentBu
       : `Welcome to ${plan.siteName}`,
     heroSubtitle: isPortfolio
       ? "Building scalable web platforms, high-performance APIs, and intuitive user experiences with modern React, TypeScript, and AI integrations."
-      : `Delivering exceptional results tailored specifically to your needs: ${prompt.slice(0, 120)}.`,
+      : `Delivering exceptional results tailored specifically to your needs: ${normalizedPrompt.slice(0, 120)}.`,
     primaryCta: isPortfolio ? "View Projects" : "Get Started",
     secondaryCta: "Contact Me",
     sections: [
