@@ -1,5 +1,7 @@
+
 "use client";
 
+import { useCallback, useMemo } from "react";
 import {
   Check,
   Laptop,
@@ -7,12 +9,16 @@ import {
   Smartphone,
   Tablet,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export type Device = "desktop" | "tablet" | "mobile";
 
 interface DevicePreviewProps {
   device: Device;
   setDevice: (device: Device) => void;
+  className?: string;
+  showDimensions?: boolean;
+  showHeader?: boolean;
 }
 
 interface DeviceConfig {
@@ -21,10 +27,10 @@ interface DeviceConfig {
   dimensions: string;
   width: number;
   height: number;
-  icon: typeof Laptop;
+  icon: LucideIcon;
 }
 
-const DEVICE_CONFIG: Record<Device, DeviceConfig> = {
+const DEVICE_CONFIG = {
   desktop: {
     label: "Desktop",
     description: "Large desktop viewport",
@@ -49,47 +55,71 @@ const DEVICE_CONFIG: Record<Device, DeviceConfig> = {
     height: 844,
     icon: Smartphone,
   },
-};
+} satisfies Record<Device, DeviceConfig>;
 
 const DEVICES: Device[] = ["desktop", "tablet", "mobile"];
 
 export function DevicePreview({
   device,
   setDevice,
+  className = "",
+  showDimensions = true,
+  showHeader = true,
 }: DevicePreviewProps) {
   const activeDevice = DEVICE_CONFIG[device];
   const ActiveIcon = activeDevice.icon;
 
+  const handleDeviceChange = useCallback(
+    (mode: Device) => {
+      if (mode !== device) {
+        setDevice(mode);
+      }
+    },
+    [device, setDevice],
+  );
+
+  const activeDescription = useMemo(
+    () =>
+      `${activeDevice.label} preview selected, ${activeDevice.width} by ${activeDevice.height} pixels`,
+    [activeDevice],
+  );
+
   return (
     <section
-      className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md"
+      className={`inline-flex max-w-full items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md ${className}`}
       aria-label="Website preview settings"
     >
-      <div className="hidden shrink-0 items-center gap-2 pl-1.5 sm:flex">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-ink/[0.035]">
-          <Monitor
-            className="h-4 w-4 text-ink/60"
-            strokeWidth={1.8}
+      {/* Preview heading */}
+      {showHeader && (
+        <>
+          <div className="hidden shrink-0 items-center gap-2 pl-1.5 sm:flex">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-ink/[0.035]">
+              <Monitor
+                className="h-4 w-4 text-ink/60"
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/70">
+                Preview
+              </p>
+
+              <p className="mt-1 text-[9px] text-ink/40">
+                Responsive mode
+              </p>
+            </div>
+          </div>
+
+          <div
+            className="hidden h-8 w-px shrink-0 bg-line sm:block"
             aria-hidden="true"
           />
-        </div>
+        </>
+      )}
 
-        <div className="min-w-0">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/70">
-            Preview
-          </p>
-
-          <p className="mt-1 text-[9px] text-ink/40">
-            Responsive mode
-          </p>
-        </div>
-      </div>
-
-      <div
-        className="hidden h-8 w-px shrink-0 bg-line sm:block"
-        aria-hidden="true"
-      />
-
+      {/* Device selector */}
       <div
         className="flex min-w-0 items-center gap-1 rounded-xl bg-ink/[0.035] p-1"
         role="group"
@@ -104,11 +134,7 @@ export function DevicePreview({
             <button
               key={mode}
               type="button"
-              onClick={() => {
-                if (!isActive) {
-                  setDevice(mode);
-                }
-              }}
+              onClick={() => handleDeviceChange(mode)}
               aria-pressed={isActive}
               aria-label={`${config.label}: ${config.dimensions} pixels`}
               title={`${config.description} (${config.dimensions})`}
@@ -155,49 +181,59 @@ export function DevicePreview({
         })}
       </div>
 
-      <div className="hidden min-w-0 items-center gap-2 border-l border-line pl-3 pr-1 md:flex">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal/[0.08]">
-          <ActiveIcon
-            className="h-4 w-4 text-teal"
-            strokeWidth={1.8}
-            aria-hidden="true"
-          />
-        </div>
+      {/* Active viewport details */}
+      {showDimensions && (
+        <>
+          <div className="hidden min-w-0 items-center gap-2 border-l border-line pl-3 pr-1 md:flex">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal/[0.08]">
+              <ActiveIcon
+                className="h-4 w-4 text-teal"
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
+            </div>
 
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                  aria-hidden="true"
+                />
+
+                <p className="whitespace-nowrap text-[9px] font-medium text-ink/45">
+                  Active viewport
+                </p>
+              </div>
+
+              <p className="mt-1 whitespace-nowrap text-[11px] font-bold text-ink/80">
+                {activeDevice.dimensions}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5 px-1 md:hidden">
             <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+              className="h-1.5 w-1.5 rounded-full bg-emerald-500"
               aria-hidden="true"
             />
 
-            <p className="whitespace-nowrap text-[9px] font-medium text-ink/45">
-              Active viewport
-            </p>
+            <span
+              className="text-[9px] font-semibold tabular-nums text-ink/50"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {activeDevice.width}
+              <span className="mx-0.5 text-ink/25">×</span>
+              {activeDevice.height}
+            </span>
           </div>
+        </>
+      )}
 
-          <p className="mt-1 whitespace-nowrap text-[11px] font-bold text-ink/80">
-            {activeDevice.dimensions}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-1.5 px-1 md:hidden">
-        <span
-          className="h-1.5 w-1.5 rounded-full bg-emerald-500"
-          aria-hidden="true"
-        />
-
-        <span
-          className="text-[9px] font-semibold tabular-nums text-ink/50"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {activeDevice.width}
-          <span className="mx-0.5 text-ink/25">×</span>
-          {activeDevice.height}
-        </span>
-      </div>
+      {/* Screen-reader announcement */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {activeDescription}
+      </span>
     </section>
   );
 }
