@@ -14,7 +14,8 @@ function cleanTitle(value: string): string {
 }
 
 export function createLocalPlan(prompt: string): WebsitePlan {
-  const lower = prompt.toLowerCase();
+  const normalizedPrompt = prompt.trim();
+  const lower = normalizedPrompt.toLowerCase();
 
   const isPortfolio = lower.includes("portfolio") || lower.includes("engineer") || lower.includes("developer") || lower.includes("designer");
   const isRestaurant = lower.includes("restaurant") || lower.includes("cafe") || lower.includes("food") || lower.includes("dining");
@@ -35,7 +36,7 @@ export function createLocalPlan(prompt: string): WebsitePlan {
     foreground: isDark ? "#f8fafc" : "#0f172a"
   };
 
-  const nameTitle = cleanTitle(prompt);
+  const nameTitle = cleanTitle(normalizedPrompt);
   const siteName = isPortfolio
     ? (nameTitle.toLowerCase().includes("portfolio") ? nameTitle : `${nameTitle} Portfolio`)
     : nameTitle;
