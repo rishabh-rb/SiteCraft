@@ -26,8 +26,8 @@ export function createLocalPlan(prompt: string): WebsitePlan {
 
   // Palette extraction
   const isDark = lower.includes("dark") || (!lower.includes("light") && isPortfolio);
-  const primaryHex = lower.includes("purple") || lower.includes("violet") ? "#8b5cf6" : lower.includes("blue") ? "#3b82f6" : lower.includes("green") ? "#10b981" : lower.includes("orange") ? "#f97316" : "#6366f1";
-  const secondaryHex = lower.includes("purple") ? "#a855f7" : lower.includes("blue") ? "#60a5fa" : lower.includes("green") ? "#34d399" : "#38bdf8";
+  const primaryHex = lower.includes("purple") || lower.includes("violet") ? "#8b5cf6" : lower.includes("blue") ? "#3b82f6" : lower.includes("green") ? "#10b981" : lower.includes("orange") ? "#f97316" : "#0f766e";
+  const secondaryHex = lower.includes("purple") ? "#a855f7" : lower.includes("blue") ? "#60a5fa" : lower.includes("green") ? "#34d399" : lower.includes("orange") ? "#fb923c" : "#14b8a6";
 
   const palette = {
     primary: primaryHex,
