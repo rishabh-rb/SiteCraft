@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useId, useMemo, type FormEvent } from "react";
+import { useId, type FormEvent } from "react";
 import {
   ArrowUpRight,
   Bot,
@@ -11,6 +12,7 @@ import {
   WandSparkles,
   X,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 
 interface PromptInputProps {
@@ -53,25 +55,37 @@ export function PromptInput({
   onSubmit,
   working,
 }: PromptInputProps) {
-  const generatedId = useId();
+  const id = useId();
 
-  const promptId = `${generatedId}-prompt`;
-  const hintId = `${generatedId}-hint`;
-  const countId = `${generatedId}-count`;
-  const errorId = `${generatedId}-error`;
+  const promptId = `${id}-prompt`;
+  const hintId = `${id}-hint`;
+  const countId = `${id}-count`;
+  const errorId = `${id}-error`;
+  const headingId = `${id}-heading`;
 
   const trimmedPrompt = prompt.trim();
   const characterCount = prompt.length;
   const remainingCharacters = MAX_CHARACTERS - characterCount;
 
+  const isTooShort =
+    trimmedPrompt.length > 0 &&
+    trimmedPrompt.length < MIN_CHARACTERS;
+
+  const isTooLong = characterCount > MAX_CHARACTERS;
+
+  const promptError = isTooShort
+    ? `Enter at least ${MIN_CHARACTERS} characters to describe your website.`
+    : isTooLong
+      ? `Your prompt exceeds the ${MAX_CHARACTERS.toLocaleString()} character limit.`
+      : "";
+
   const canGenerate =
     trimmedPrompt.length >= MIN_CHARACTERS &&
-    characterCount <= MAX_CHARACTERS &&
+    !isTooLong &&
     !working;
 
-  const selectedExample = useMemo(
-    () => EXAMPLE_PROMPTS.some((example) => example.prompt === prompt),
-    [prompt],
+  const selectedExample = EXAMPLE_PROMPTS.some(
+    (example) => example.prompt === prompt,
   );
 
   const characterStatus =
@@ -81,30 +95,31 @@ export function PromptInput({
         ? "text-amber-500"
         : "text-ink/40";
 
-  const promptError =
-    trimmedPrompt.length > 0 && trimmedPrompt.length < MIN_CHARACTERS
-      ? `Enter at least ${MIN_CHARACTERS} characters to describe your website.`
-      : "";
+  const progressPercentage = Math.min(
+    (characterCount / MAX_CHARACTERS) * 100,
+    100,
+  );
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!canGenerate) return;
 
     onSubmit(event);
-  };
+  }
 
-  const handleClear = () => {
+  function handleClear() {
     if (!working) {
       setPrompt("");
     }
-  };
+  }
 
   return (
     <section
       className="space-y-5"
-      aria-labelledby={`${generatedId}-heading`}
+      aria-labelledby={headingId}
     >
+      {/* Section heading */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-accent/15 bg-accent/10 shadow-sm">
@@ -117,7 +132,7 @@ export function PromptInput({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2
-                id={`${generatedId}-heading`}
+                id={headingId}
                 className="text-sm font-black tracking-tight text-ink sm:text-base"
               >
                 Build your website
@@ -129,7 +144,8 @@ export function PromptInput({
             </div>
 
             <p className="mt-1 max-w-sm text-xs leading-5 text-ink/50">
-              Turn your idea into a polished website with a simple description.
+              Turn your idea into a polished website with a simple
+              description.
             </p>
           </div>
         </div>
@@ -145,7 +161,12 @@ export function PromptInput({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-3"
+        noValidate
+      >
+        {/* Prompt editor */}
         <div
           className={`group relative overflow-hidden rounded-2xl border bg-paper shadow-sm transition-all duration-200 ${
             working
@@ -172,7 +193,10 @@ export function PromptInput({
             <div className="flex shrink-0 items-center gap-2">
               {selectedExample && (
                 <span className="hidden items-center gap-1 text-accent sm:flex">
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Check
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
                   <span className="text-[9px] font-bold">
                     Example selected
                   </span>
@@ -187,13 +211,19 @@ export function PromptInput({
                   title="Clear prompt"
                   className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/40 transition-colors hover:bg-black/5 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                 >
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  <X
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
                 </button>
               )}
             </div>
           </div>
 
-          <label htmlFor={promptId} className="sr-only">
+          <label
+            htmlFor={promptId}
+            className="sr-only"
+          >
             Describe the website you want to generate
           </label>
 
@@ -209,12 +239,15 @@ export function PromptInput({
             required
             disabled={working}
             aria-invalid={Boolean(promptError)}
-            aria-describedby={`${hintId} ${countId}${
-              promptError ? ` ${errorId}` : ""
-            }`}
+            aria-describedby={[
+              hintId,
+              countId,
+              ...(promptError ? [errorId] : []),
+            ].join(" ")}
             className="min-h-[175px] w-full resize-y bg-transparent px-4 py-4 text-sm leading-6 text-ink outline-none placeholder:text-ink/30 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[195px]"
           />
 
+          {/* Character count and hint */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line/60 bg-paper/80 px-4 py-3">
             <p
               id={hintId}
@@ -238,22 +271,42 @@ export function PromptInput({
             </span>
           </div>
 
+          {/* Character usage indicator */}
           <div
-            className="absolute bottom-0 left-0 h-0.5 w-full origin-left scale-x-0 bg-accent transition-transform duration-300 group-focus-within:scale-x-100"
-            aria-hidden="true"
-          />
+            className="h-0.5 w-full bg-line/40"
+            role="progressbar"
+            aria-label="Prompt character limit usage"
+            aria-valuemin={0}
+            aria-valuemax={MAX_CHARACTERS}
+            aria-valuenow={characterCount}
+          >
+            <div
+              className={`h-full transition-all duration-200 ${
+                characterCount >= MAX_CHARACTERS * 0.95
+                  ? "bg-red-500"
+                  : characterCount >= MAX_CHARACTERS * 0.8
+                    ? "bg-amber-500"
+                    : "bg-accent"
+              }`}
+              style={{
+                width: `${progressPercentage}%`,
+              }}
+            />
+          </div>
         </div>
 
+        {/* Validation feedback */}
         {promptError && (
           <p
             id={errorId}
-            role="status"
+            role="alert"
             className="text-xs leading-5 text-amber-600"
           >
             {promptError}
           </p>
         )}
 
+        {/* Generate button */}
         <Button
           type="submit"
           variant="accent"
@@ -293,7 +346,10 @@ export function PromptInput({
           )}
         </Button>
 
-        <p className="text-center text-[10px] leading-4 text-ink/40">
+        <p
+          className="text-center text-[10px] leading-4 text-ink/40"
+          aria-live="polite"
+        >
           {working
             ? "Your website is being created. Please wait..."
             : trimmedPrompt.length === 0
@@ -302,10 +358,11 @@ export function PromptInput({
                 ? `${
                     MIN_CHARACTERS - trimmedPrompt.length
                   } more characters needed to generate.`
-                : `${remainingCharacters.toLocaleString()} characters available.`}
+                : `${Math.max(remainingCharacters, 0).toLocaleString()} characters available.`}
         </p>
       </form>
 
+      {/* Quick-start examples */}
       <div className="space-y-3 pt-1">
         <div className="flex items-center justify-between gap-3">
           <div>
