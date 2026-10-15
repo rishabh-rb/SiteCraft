@@ -54,25 +54,25 @@ export interface ContentBundle {
 }
 
 export const ContentBundleSchema = z.object({
-  heroTitle: z.string().min(1).max(160),
-  heroSubtitle: z.string().min(1).max(260),
-  primaryCta: z.string().min(1).max(40),
-  secondaryCta: z.string().min(1).max(40),
+  heroTitle: z.string().trim().min(1).max(160),
+  heroSubtitle: z.string().trim().min(1).max(260),
+  primaryCta: z.string().trim().min(1).max(40),
+  secondaryCta: z.string().trim().min(1).max(40),
   sections: z.array(z.object({
-    title: z.string().min(1).max(120),
-    body: z.string().min(1).max(500),
-    items: z.array(z.string().min(1).max(80)).max(8).optional(),
+    title: z.string().trim().min(1).max(120),
+    body: z.string().trim().min(1).max(500),
+    items: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
   })).min(1).max(8),
   testimonials: z.array(z.object({
-    quote: z.string().min(1).max(200),
-    name: z.string().min(1).max(80),
-    role: z.string().min(1).max(80),
+    quote: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(80),
+    role: z.string().trim().min(1).max(80),
   })).max(6),
   faq: z.array(z.object({
-    question: z.string().min(1).max(120),
-    answer: z.string().min(1).max(300),
+    question: z.string().trim().min(1).max(120),
+    answer: z.string().trim().min(1).max(300),
   })).max(8),
-  seo: z.object({ title: z.string().min(1).max(160), description: z.string().min(1).max(260) }),
+  seo: z.object({ title: z.string().trim().min(1).max(160), description: z.string().trim().min(1).max(260) }),
 });
 
 export interface GeneratedFile {
