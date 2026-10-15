@@ -19,7 +19,6 @@ const defaultNvidiaBaseUrl = "https://integrate.api.nvidia.com/v1";
 const defaultNvidiaModel = "qwen/qwen3-coder-480b-a35b-instruct";
 const defaultBynaraBaseUrl = "https://router.bynara.id/v1";
 const defaultBynaraModel = "agnes-2.0-flash";
-const defaultBynaraApiKey = process.env.NODE_ENV === "development" ? "sk-nry-GTLLjfedbjhnJE6zcyWwJGM6vnjJ-DZOjGFBg06KiUg" : undefined;
 const requestTimeoutMs = 60_000;
 
 export class ProviderError extends Error {
