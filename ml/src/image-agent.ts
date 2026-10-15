@@ -162,8 +162,9 @@ function detectCategory(prompt: string, plan: WebsitePlan): string {
 export async function generateImages(prompt: string, plan: WebsitePlan, accessKey?: string): Promise<ImageAsset[]> {
   const category = detectCategory(prompt, plan);
   const fallbackAssets = CURATED_TOPIC_IMAGES[category] || CURATED_TOPIC_IMAGES.default;
+  const normalizedAccessKey = accessKey?.trim();
 
-  if (!accessKey) {
+  if (!normalizedAccessKey) {
     return fallbackAssets;
   }
 
@@ -175,7 +176,7 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
     try {
       response = await fetch(`https://api.unsplash.com/search/photos?query=${query}&per_page=4&orientation=landscape`, {
         headers: {
-          Authorization: `Client-ID ${accessKey}`
+          Authorization: `Client-ID ${normalizedAccessKey}`
         },
         signal: controller.signal
       });
