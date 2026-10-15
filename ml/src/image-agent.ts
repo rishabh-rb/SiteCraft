@@ -181,7 +181,8 @@ export async function generateImages(prompt: string, plan: WebsitePlan, accessKe
   }
 
   try {
-    const query = encodeURIComponent(`${plan.siteName} ${category}`);
+    const queryText = [plan.siteName, category, prompt.trim().slice(0, 80)].filter(Boolean).join(" ");
+    const query = encodeURIComponent(queryText);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), imageRequestTimeoutMs);
     let response: Response;
