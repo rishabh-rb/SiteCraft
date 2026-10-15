@@ -21,7 +21,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
-  Tablet,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -62,9 +61,9 @@ interface PreviewFrameProps {
   onError: () => void;
 }
 
-const PREVIEW_TIMEOUT = 15000;
-const REFRESH_MIN_DURATION = 450;
-const BLOB_URL_LIFETIME = 60000;
+const PREVIEW_TIMEOUT = 20000;
+const REFRESH_MIN_DURATION = 400;
+const BLOB_URL_LIFETIME = 5 * 60 * 1000;
 
 const deviceClass: Record<Device, string> = {
   desktop: "w-full max-w-[1400px]",
@@ -96,30 +95,26 @@ export function PreviewPanel({
     useState<PreviewState>("loading");
 
   const dialogId = useId();
-
-  const refreshTimerRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const timeoutRef =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshStartedRef = useRef(0);
   const generationRef = useRef(0);
-  const isMountedRef = useRef(true);
-
+  const isMountedRef = useRef(false);
   const blobUrlsRef = useRef<Set<string>>(new Set());
-
   const blobUrlTimersRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
 
+  const html = website?.html ?? "";
+  const siteName =
+    website?.plan?.siteName?.trim() || "Website Preview";
+
   const hasWebsite =
     typeof website?.html === "string" &&
     website.html.trim().length > 0;
-
-  const html = website?.html ?? "";
-  const siteName = website?.plan?.siteName?.trim() ||
-    "Website Preview";
 
   const clearRefreshTimer = useCallback(() => {
     if (refreshTimerRef.current !== null) {
@@ -220,7 +215,6 @@ export function PreviewPanel({
 
   const finishRefreshing = useCallback(() => {
     const elapsed = Date.now() - refreshStartedRef.current;
-
     const remaining = Math.max(
       0,
       REFRESH_MIN_DURATION - elapsed
@@ -260,7 +254,6 @@ export function PreviewPanel({
 
     setRefreshing(true);
     beginLoading();
-
     setRefreshKey((current) => current + 1);
 
     refreshTimerRef.current = setTimeout(() => {
@@ -299,7 +292,12 @@ export function PreviewPanel({
 
     window.addEventListener("keydown", handleKeyDown);
 
+    const focusTimer = setTimeout(() => {
+      fullscreenCloseRef.current?.focus();
+    }, 0);
+
     return () => {
+      clearTimeout(focusTimer);
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
@@ -312,6 +310,7 @@ export function PreviewPanel({
     let blobUrl: string | null = null;
 
     try {
+      // Open synchronously to reduce popup-blocker issues.
       previewWindow = window.open("about:blank", "_blank");
 
       if (!previewWindow) return;
@@ -319,7 +318,7 @@ export function PreviewPanel({
       try {
         previewWindow.opener = null;
       } catch {
-        // Continue if the browser restricts this assignment.
+        // Continue if the browser blocks this assignment.
       }
 
       const blob = new Blob([html], {
@@ -335,7 +334,6 @@ export function PreviewPanel({
 
       const timer = setTimeout(() => {
         URL.revokeObjectURL(urlToRevoke);
-
         blobUrlsRef.current.delete(urlToRevoke);
         blobUrlTimersRef.current.delete(urlToRevoke);
       }, BLOB_URL_LIFETIME);
@@ -369,7 +367,7 @@ export function PreviewPanel({
       <header className="relative z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line bg-white px-3 shadow-sm sm:px-4">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div
-            className={`hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border sm:flex ${
+            className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl border sm:flex ${
               hasWebsite
                 ? "border-accent/10 bg-accent/10"
                 : "border-line bg-paper"
@@ -390,7 +388,7 @@ export function PreviewPanel({
               </h2>
 
               {hasWebsite && (
-                <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600 sm:inline-flex">
+                <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700 sm:inline-flex">
                   <span
                     className="relative flex h-1.5 w-1.5"
                     aria-hidden="true"
@@ -418,7 +416,7 @@ export function PreviewPanel({
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <PreviewAction
             label="Refresh preview"
             onClick={handleRefresh}
@@ -492,7 +490,7 @@ export function PreviewPanel({
 
       {/* Bottom status bar */}
       {hasWebsite && (
-        <footer className="flex h-7 shrink-0 items-center justify-between border-t border-line bg-white px-3 text-[9px]">
+        <footer className="flex h-8 shrink-0 items-center justify-between gap-2 border-t border-line bg-white px-3 text-[9px] sm:px-4">
           <div className="flex min-w-0 items-center gap-3 text-ink/45">
             <span className="shrink-0">
               View:{" "}
@@ -502,7 +500,7 @@ export function PreviewPanel({
             </span>
 
             <span className="hidden truncate sm:inline">
-              Live HTML preview
+              Sandboxed HTML preview
             </span>
           </div>
 
@@ -529,8 +527,8 @@ export function PreviewPanel({
         >
           <header className="flex h-12 shrink-0 items-center justify-between gap-2 rounded-t-xl border border-white/10 bg-[#151719] px-3 shadow-2xl sm:px-4">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5">
-                <MonitorPlay className="h-3.5 w-3.5 text-white/70" />
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-white/5">
+                <MonitorPlay className="h-4 w-4 text-white/70" />
               </div>
 
               <div className="min-w-0">
@@ -542,7 +540,7 @@ export function PreviewPanel({
                 </h3>
 
                 <p className="hidden text-[9px] text-white/40 sm:block">
-                  Fullscreen live preview
+                  Fullscreen website preview
                 </p>
               </div>
             </div>
@@ -575,6 +573,7 @@ export function PreviewPanel({
                 label="Close fullscreen"
                 onClick={closeFullscreen}
                 dark
+                className="focus-visible:ring-white/40"
               >
                 <X className="h-4 w-4" />
               </PreviewAction>
@@ -655,7 +654,10 @@ function PreviewFrame({
     <>
       {device !== "mobile" && (
         <div className="flex h-9 shrink-0 items-center border-b border-black/10 bg-[#f5f5f5] px-3">
-          <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center gap-1.5"
+            aria-hidden="true"
+          >
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
@@ -712,7 +714,7 @@ function PreviewAction({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`group inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 ${
+      className={`group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 focus:outline-none focus-visible:ring-2 ${
         dark
           ? "border-transparent text-white/50 hover:border-white/10 hover:bg-white/10 hover:text-white focus-visible:ring-white/25"
           : "border-transparent text-ink/55 hover:border-line hover:bg-paper hover:text-ink focus-visible:ring-accent/30"
@@ -810,8 +812,8 @@ function PreviewLoadingOverlay({
       aria-live="polite"
     >
       <div className="flex min-w-[220px] items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 shadow-[0_16px_50px_rgba(0,0,0,0.12)]">
-        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
-          <span className="absolute inset-0 animate-pulse rounded-lg bg-accent/5" />
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/10">
+          <span className="absolute inset-0 animate-pulse rounded-xl bg-accent/5" />
           <Loader2 className="relative h-4 w-4 animate-spin text-accent" />
         </div>
 
@@ -859,7 +861,7 @@ function PreviewErrorOverlay({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-white transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-xs font-semibold text-white transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           Retry preview
