@@ -4,7 +4,6 @@
 import { useCallback, useMemo } from "react";
 import {
   Check,
-  Laptop,
   Monitor,
   Smartphone,
   Tablet,
@@ -37,7 +36,7 @@ const DEVICE_CONFIG = {
     dimensions: "1440 × 900",
     width: 1440,
     height: 900,
-    icon: Laptop,
+    icon: Monitor,
   },
   tablet: {
     label: "Tablet",
@@ -86,7 +85,7 @@ export function DevicePreview({
 
   return (
     <section
-      className={`inline-flex max-w-full items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md ${className}`}
+      className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md ${className}`}
       aria-label="Website preview settings"
     >
       {/* Preview heading */}
@@ -105,7 +104,6 @@ export function DevicePreview({
               <p className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/70">
                 Preview
               </p>
-
               <p className="mt-1 text-[9px] text-ink/40">
                 Responsive mode
               </p>
@@ -138,7 +136,7 @@ export function DevicePreview({
               aria-pressed={isActive}
               aria-label={`${config.label}: ${config.dimensions} pixels`}
               title={`${config.description} (${config.dimensions})`}
-              className={`group relative inline-flex h-9 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg px-2 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/50 focus-visible:ring-offset-1 sm:gap-2 sm:px-3 ${
+              className={`group relative inline-flex h-9 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg px-2 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/50 focus-visible:ring-offset-1 motion-reduce:transition-none sm:gap-2 sm:px-3 ${
                 isActive
                   ? "bg-ink text-white shadow-sm"
                   : "text-ink/50 hover:bg-white hover:text-ink/80 hover:shadow-sm"
@@ -152,10 +150,10 @@ export function DevicePreview({
               )}
 
               <Icon
-                className={`relative h-4 w-4 shrink-0 transition-transform duration-200 ${
+                className={`relative h-4 w-4 shrink-0 ${
                   isActive
                     ? "text-teal"
-                    : "group-hover:scale-110"
+                    : "transition-transform duration-200 group-hover:scale-110 motion-reduce:transition-none"
                 }`}
                 strokeWidth={isActive ? 2.2 : 1.8}
                 aria-hidden="true"
@@ -199,13 +197,12 @@ export function DevicePreview({
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
                   aria-hidden="true"
                 />
-
                 <p className="whitespace-nowrap text-[9px] font-medium text-ink/45">
                   Active viewport
                 </p>
               </div>
 
-              <p className="mt-1 whitespace-nowrap text-[11px] font-bold text-ink/80">
+              <p className="mt-1 whitespace-nowrap text-[11px] font-bold tabular-nums text-ink/80">
                 {activeDevice.dimensions}
               </p>
             </div>
@@ -217,11 +214,7 @@ export function DevicePreview({
               aria-hidden="true"
             />
 
-            <span
-              className="text-[9px] font-semibold tabular-nums text-ink/50"
-              aria-live="polite"
-              aria-atomic="true"
-            >
+            <span className="text-[9px] font-semibold tabular-nums text-ink/50">
               {activeDevice.width}
               <span className="mx-0.5 text-ink/25">×</span>
               {activeDevice.height}
@@ -231,7 +224,12 @@ export function DevicePreview({
       )}
 
       {/* Screen-reader announcement */}
-      <span className="sr-only" role="status" aria-live="polite">
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {activeDescription}
       </span>
     </section>
