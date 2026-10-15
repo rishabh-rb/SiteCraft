@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { deployToVercel } from "./deployment/vercel.js";
 
 /* =========================================================
-   Types and Test Data
+   Types and Constants
 ========================================================= */
 
 type DeploymentFile = {
@@ -20,6 +20,13 @@ type FetchHandler = (
   init?: Parameters<typeof fetch>[1],
 ) => Response | Promise<Response>;
 
+type DeploymentResult = Awaited<
+  ReturnType<typeof deployToVercel>
+>;
+
+const TEST_TOKEN = "fake-vercel-token";
+const TEST_PROJECT = "Test Project";
+
 const TEST_FILES: DeploymentFile[] = [
   {
     path: "index.html",
@@ -27,21 +34,18 @@ const TEST_FILES: DeploymentFile[] = [
   },
 ];
 
-const TEST_TOKEN = "fake-vercel-token";
-const TEST_PROJECT = "Test Project";
-
 const SUCCESS_RESPONSE = {
   id: "dpl_12345",
   url: "test-project.vercel.app",
   readyState: "READY",
 };
 
-let previousFetch: typeof fetch;
-let previousToken: string | undefined;
-
 /* =========================================================
    Test Isolation
 ========================================================= */
+
+let previousFetch: typeof fetch;
+let previousToken: string | undefined;
 
 test.beforeEach(() => {
   previousFetch = globalThis.fetch;
@@ -86,7 +90,9 @@ function mockJsonResponse(
   mockFetch(() => createApiResponse(body, status));
 }
 
-function mockNetworkError(message = "Network connection failed"): void {
+function mockNetworkError(
+  message = "Network connection failed",
+): void {
   mockFetch(() => {
     throw new Error(message);
   });
@@ -95,7 +101,11 @@ function mockNetworkError(message = "Network connection failed"): void {
 function parseRequestBody(
   body: BodyInit | null | undefined,
 ): ApiPayload {
-  assert.equal(typeof body, "string");
+  assert.equal(
+    typeof body,
+    "string",
+    "Expected a stringified JSON request body",
+  );
 
   const parsed: unknown = JSON.parse(body as string);
 
@@ -110,7 +120,7 @@ function parseRequestBody(
 }
 
 function assertDeploymentError(
-  result: Awaited<ReturnType<typeof deployToVercel>>,
+  result: DeploymentResult,
 ): void {
   assert.equal(result.success, false);
   assert.equal(result.status, "ERROR");
@@ -118,8 +128,18 @@ function assertDeploymentError(
   assert.ok(result.error.length > 0);
 }
 
+function assertSuccessfulDeployment(
+  result: DeploymentResult,
+): void {
+  assert.equal(
+    result.success,
+    true,
+    `Expected success, received: ${result.error ?? "unknown error"}`,
+  );
+}
+
 /* =========================================================
-   Configuration
+   Configuration and Authentication
 ========================================================= */
 
 test("returns configuration guidance when the token is missing", async () => {
@@ -152,7 +172,10 @@ test("uses VERCEL_TOKEN from the environment when no token is passed", async () 
   let authorization: string | null = null;
 
   mockFetch((_input, init) => {
-    authorization = new Headers(init?.headers).get("Authorization");
+    authorization = new Headers(init?.headers).get(
+      "Authorization",
+    );
+
     return createApiResponse(SUCCESS_RESPONSE);
   });
 
@@ -161,17 +184,23 @@ test("uses VERCEL_TOKEN from the environment when no token is passed", async () 
     TEST_FILES,
   );
 
-  assert.equal(result.success, true);
-  assert.equal(authorization, "Bearer environment-token");
+  assertSuccessfulDeployment(result);
+  assert.equal(
+    authorization,
+    "Bearer environment-token",
+  );
 });
 
-test("uses the explicitly provided token", async () => {
+test("uses the explicitly provided token instead of the environment token", async () => {
   process.env.VERCEL_TOKEN = "environment-token";
 
   let authorization: string | null = null;
 
   mockFetch((_input, init) => {
-    authorization = new Headers(init?.headers).get("Authorization");
+    authorization = new Headers(init?.headers).get(
+      "Authorization",
+    );
+
     return createApiResponse(SUCCESS_RESPONSE);
   });
 
@@ -181,8 +210,11 @@ test("uses the explicitly provided token", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
-  assert.equal(authorization, `Bearer ${TEST_TOKEN}`);
+  assertSuccessfulDeployment(result);
+  assert.equal(
+    authorization,
+    `Bearer ${TEST_TOKEN}`,
+  );
 });
 
 /* =========================================================
@@ -198,7 +230,7 @@ test("returns deployment details on success", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.equal(result.status, "READY");
   assert.equal(result.deploymentId, "dpl_12345");
   assert.equal(
@@ -220,12 +252,12 @@ test("handles a deployment that is still building", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.equal(result.status, "BUILDING");
   assert.equal(result.deploymentId, "dpl_building");
 });
 
-test("does not duplicate HTTPS in the deployment URL", async () => {
+test("normalizes an HTTPS deployment URL", async () => {
   mockJsonResponse({
     id: "dpl_https",
     url: "https://example.vercel.app",
@@ -238,6 +270,7 @@ test("does not duplicate HTTPS in the deployment URL", async () => {
     TEST_TOKEN,
   );
 
+  assertSuccessfulDeployment(result);
   assert.equal(
     result.deploymentUrl,
     "https://example.vercel.app",
@@ -245,7 +278,7 @@ test("does not duplicate HTTPS in the deployment URL", async () => {
 });
 
 /* =========================================================
-   Request Verification
+   HTTP Request Verification
 ========================================================= */
 
 test("sends the correct HTTP method and headers", async () => {
@@ -265,17 +298,23 @@ test("sends the correct HTTP method and headers", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.equal(method, "POST");
   assert.equal(
     headers?.get("Authorization"),
     `Bearer ${TEST_TOKEN}`,
   );
-  assert.equal(headers?.get("Content-Type"), "application/json");
-  assert.equal(headers?.get("Accept"), "application/json");
+  assert.equal(
+    headers?.get("Content-Type"),
+    "application/json",
+  );
+  assert.equal(
+    headers?.get("Accept"),
+    "application/json",
+  );
 });
 
-test("sends the deployment files in the JSON body", async () => {
+test("sends deployment files in the JSON request body", async () => {
   let requestBody: ApiPayload | undefined;
 
   mockFetch((_input, init) => {
@@ -289,10 +328,12 @@ test("sends the deployment files in the JSON body", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.ok(Array.isArray(requestBody?.files));
 
-  const files = requestBody.files as Array<Record<string, unknown>>;
+  const files = requestBody.files as Array<
+    Record<string, unknown>
+  >;
 
   assert.ok(
     files.some(
@@ -300,11 +341,11 @@ test("sends the deployment files in the JSON body", async () => {
         file.file === "index.html" &&
         file.data === "<h1>Hello</h1>",
     ),
-    "Expected the deployment request to contain index.html and its content",
+    "Expected index.html and its content in the request",
   );
 });
 
-test("converts the project name to a deployment-friendly slug", async () => {
+test("converts the project name into a deployment-friendly slug", async () => {
   let requestBody: ApiPayload | undefined;
 
   mockFetch((_input, init) => {
@@ -318,7 +359,7 @@ test("converts the project name to a deployment-friendly slug", async () => {
     TEST_TOKEN,
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.equal(requestBody?.name, "my-test-project");
 });
 
@@ -337,9 +378,34 @@ test("includes teamId in the request URL when provided", async () => {
     "team_123",
   );
 
-  assert.equal(result.success, true);
+  assertSuccessfulDeployment(result);
   assert.ok(requestUrl);
-  assert.equal(requestUrl.searchParams.get("teamId"), "team_123");
+  assert.equal(
+    requestUrl.searchParams.get("teamId"),
+    "team_123",
+  );
+});
+
+test("omits teamId when it is not provided", async () => {
+  let requestUrl: URL | undefined;
+
+  mockFetch((input) => {
+    requestUrl = new URL(String(input));
+    return createApiResponse(SUCCESS_RESPONSE);
+  });
+
+  const result = await deployToVercel(
+    TEST_PROJECT,
+    TEST_FILES,
+    TEST_TOKEN,
+  );
+
+  assertSuccessfulDeployment(result);
+  assert.ok(requestUrl);
+  assert.equal(
+    requestUrl.searchParams.has("teamId"),
+    false,
+  );
 });
 
 /* =========================================================
@@ -362,6 +428,24 @@ test("rejects an empty project name without calling the API", async () => {
 
   assertDeploymentError(result);
   assert.match(result.error, /project name/i);
+  assert.equal(fetchCalled, false);
+});
+
+test("rejects a whitespace-only project name", async () => {
+  let fetchCalled = false;
+
+  mockFetch(() => {
+    fetchCalled = true;
+    return createApiResponse(SUCCESS_RESPONSE);
+  });
+
+  const result = await deployToVercel(
+    "   ",
+    TEST_FILES,
+    TEST_TOKEN,
+  );
+
+  assertDeploymentError(result);
   assert.equal(fetchCalled, false);
 });
 
@@ -421,6 +505,24 @@ test("rejects parent-directory traversal in file paths", async () => {
   assert.equal(fetchCalled, false);
 });
 
+test("rejects absolute file paths", async () => {
+  let fetchCalled = false;
+
+  mockFetch(() => {
+    fetchCalled = true;
+    return createApiResponse(SUCCESS_RESPONSE);
+  });
+
+  const result = await deployToVercel(
+    "Absolute Path Project",
+    [{ path: "/etc/passwd", content: "secret" }],
+    TEST_TOKEN,
+  );
+
+  assertDeploymentError(result);
+  assert.equal(fetchCalled, false);
+});
+
 /* =========================================================
    API Errors
 ========================================================= */
@@ -442,7 +544,10 @@ test("handles Vercel server errors", async () => {
   );
 
   assertDeploymentError(result);
-  assert.match(result.error, /Vercel deployment failed/i);
+  assert.match(
+    result.error,
+    /Vercel deployment failed/i,
+  );
 });
 
 test("handles unauthorized responses", async () => {
@@ -490,6 +595,25 @@ test("handles non-JSON API error responses", async () => {
 
   const result = await deployToVercel(
     "Non JSON Error Project",
+    TEST_FILES,
+    TEST_TOKEN,
+  );
+
+  assertDeploymentError(result);
+});
+
+test("handles rate-limited API responses", async () => {
+  mockJsonResponse(
+    {
+      error: {
+        message: "Too many requests",
+      },
+    },
+    429,
+  );
+
+  const result = await deployToVercel(
+    "Rate Limited Project",
     TEST_FILES,
     TEST_TOKEN,
   );
@@ -548,6 +672,21 @@ test("rejects a response without a deployment ID", async () => {
   assertDeploymentError(result);
 });
 
+test("rejects a response without a deployment URL", async () => {
+  mockJsonResponse({
+    id: "dpl_missing_url",
+    readyState: "READY",
+  });
+
+  const result = await deployToVercel(
+    "Missing URL Project",
+    TEST_FILES,
+    TEST_TOKEN,
+  );
+
+  assertDeploymentError(result);
+});
+
 /* =========================================================
    Network Errors
 ========================================================= */
@@ -562,11 +701,16 @@ test("handles network failures gracefully", async () => {
   );
 
   assertDeploymentError(result);
-  assert.match(result.error, /network|connection|failed/i);
+  assert.match(
+    result.error,
+    /network|connection|failed/i,
+  );
 });
 
 test("handles a rejected fetch promise", async () => {
-  mockFetch(() => Promise.reject(new TypeError("fetch failed")));
+  mockFetch(() =>
+    Promise.reject(new TypeError("fetch failed")),
+  );
 
   const result = await deployToVercel(
     "Fetch Failure Project",
@@ -608,17 +752,24 @@ test("does not expose the Vercel token in deployment errors", async () => {
   );
 });
 
-/* =========================================================
-   Global State Restoration
-========================================================= */
+test("does not send the token as a query parameter", async () => {
+  let requestUrl: URL | undefined;
 
-test("restores fetch and VERCEL_TOKEN after the test", () => {
-  // The afterEach hook restores the state captured by beforeEach.
-  assert.equal(globalThis.fetch, previousFetch);
+  mockFetch((input) => {
+    requestUrl = new URL(String(input));
+    return createApiResponse(SUCCESS_RESPONSE);
+  });
 
-  if (previousToken === undefined) {
-    assert.equal(process.env.VERCEL_TOKEN, undefined);
-  } else {
-    assert.equal(process.env.VERCEL_TOKEN, previousToken);
+  const result = await deployToVercel(
+    TEST_PROJECT,
+    TEST_FILES,
+    TEST_TOKEN,
+  );
+
+  assertSuccessfulDeployment(result);
+  assert.ok(requestUrl);
+
+  for (const value of requestUrl.searchParams.values()) {
+    assert.notEqual(value, TEST_TOKEN);
   }
 });
