@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -96,9 +95,13 @@ const SUGGESTIONS: Suggestion[] = [
 ];
 
 async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Use the fallback below if clipboard access is restricted.
   }
 
   const textarea = document.createElement("textarea");
@@ -106,13 +109,16 @@ async function copyText(text: string): Promise<void> {
   textarea.value = text;
   textarea.readOnly = true;
   textarea.setAttribute("aria-hidden", "true");
+  textarea.tabIndex = -1;
   textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
   textarea.style.opacity = "0";
-  textarea.style.pointerEvents = "none";
 
   document.body.appendChild(textarea);
 
   try {
+    textarea.focus();
     textarea.select();
 
     if (!document.execCommand("copy")) {
@@ -133,7 +139,6 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const copyTimeoutRef =
     useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,6 +160,7 @@ export function ChatPanel({
   const trimmedText = chatText.trim();
 
   const remainingCharacters = MAX_MESSAGE_LENGTH - chatText.length;
+
   const characterProgress = Math.min(
     (chatText.length / MAX_MESSAGE_LENGTH) * 100,
     100,
@@ -234,7 +240,7 @@ export function ChatPanel({
     setShowScrollButton(!nearBottom);
   }, []);
 
-  // Follow new messages without forcing the user away from older messages.
+  // Follow new messages without forcing users away from older messages.
   useEffect(() => {
     const hasNewMessages =
       messages.length !== previousMessageCountRef.current;
@@ -285,10 +291,9 @@ export function ChatPanel({
     );
 
     textarea.style.height = `${nextHeight}px`;
+
     textarea.style.overflowY =
-      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT
-        ? "auto"
-        : "hidden";
+      textarea.scrollHeight > MAX_TEXTAREA_HEIGHT ? "auto" : "hidden";
   }, [chatText]);
 
   // Focus the input when the editor first becomes available.
@@ -432,7 +437,10 @@ export function ChatPanel({
 
               {!disabled && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-teal/15 bg-teal/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-teal">
-                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                  <Sparkles
+                    className="h-3 w-3"
+                    aria-hidden="true"
+                  />
                   AI Powered
                 </span>
               )}
@@ -454,6 +462,7 @@ export function ChatPanel({
               className="h-3.5 w-3.5 text-teal"
               aria-hidden="true"
             />
+
             <span className="text-[10px] font-bold tabular-nums text-ink/60">
               {messages.length}
             </span>
@@ -490,11 +499,6 @@ export function ChatPanel({
               ))}
 
               {working && <ThinkingIndicator />}
-
-              <div
-                ref={messagesEndRef}
-                aria-hidden="true"
-              />
             </div>
           )}
         </div>
@@ -506,7 +510,10 @@ export function ChatPanel({
             className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-3 py-2 text-[10px] font-bold text-ink shadow-lg transition-all hover:border-teal/30 hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
             aria-label="Scroll to latest message"
           >
-            <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+            <ArrowDown
+              className="h-3.5 w-3.5"
+              aria-hidden="true"
+            />
             Latest message
           </button>
         )}
@@ -581,8 +588,11 @@ export function ChatPanel({
                           ? "text-orange-500"
                           : "text-ink/45"
                     }`}
+                    aria-live="polite"
                   >
-                    {remainingCharacters} left
+                    {isAtLimit
+                      ? "Limit reached"
+                      : `${remainingCharacters} left`}
                   </span>
 
                   <button
@@ -592,7 +602,10 @@ export function ChatPanel({
                     aria-label="Clear message"
                     title="Clear message"
                   >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    <X
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
                   </button>
                 </>
               ) : working ? (
@@ -641,7 +654,10 @@ export function ChatPanel({
                   aria-hidden="true"
                 />
               ) : (
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                <ArrowUp
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                />
               )}
             </button>
           </div>
@@ -688,6 +704,7 @@ export function ChatPanel({
                   className="h-3.5 w-3.5 text-teal"
                   aria-hidden="true"
                 />
+
                 <h3 className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/55">
                   Quick edits
                 </h3>
@@ -710,7 +727,10 @@ export function ChatPanel({
                     className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-paper p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-teal/30 hover:bg-teal/[0.035] hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30 active:translate-y-0"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-teal/10 bg-teal/[0.08] text-teal transition-transform duration-200 group-hover:scale-105">
-                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      <Icon
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      />
                     </span>
 
                     <span className="min-w-0 flex-1">
@@ -740,6 +760,7 @@ export function ChatPanel({
             role="status"
           >
             <span className="h-2 w-2 rounded-full bg-ink/25" />
+
             <p className="text-xs font-medium text-ink/50">
               Website editing is currently unavailable.
             </p>
@@ -786,6 +807,7 @@ function EmptyChatState() {
 
       <div className="relative mt-4 inline-flex items-center gap-2 rounded-full border border-teal/15 bg-teal/[0.06] px-3 py-1.5">
         <Zap className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
+
         <span className="text-[10px] font-bold text-teal">
           Your next idea starts here
         </span>
@@ -865,7 +887,10 @@ function ChatBubble({
               </>
             ) : (
               <>
-                <Sparkles className="h-3 w-3" aria-hidden="true" />
+                <Sparkles
+                  className="h-3 w-3"
+                  aria-hidden="true"
+                />
                 AI Assistant
               </>
             )}
@@ -918,7 +943,10 @@ function ChatBubble({
             </button>
 
             {copyFailed && (
-              <span className="text-[10px] text-red-500" role="status">
+              <span
+                className="text-[10px] text-red-500"
+                role="status"
+              >
                 Clipboard unavailable
               </span>
             )}
