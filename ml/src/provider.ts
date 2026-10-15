@@ -85,6 +85,12 @@ function trimEnv(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function boundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, minimum), maximum);
+}
+
 function modelEnvKeyFor(schemaName: string): string {
   const envKey = agentModelEnvKeys[schemaName as AgentName];
   return typeof envKey === "string" ? envKey : "NVIDIA_MODEL";
@@ -443,8 +449,8 @@ async function callOpenAI<T>(args: ProviderCallArgs): Promise<T | null> {
 }
 
 export function createProvider(env: NodeJS.ProcessEnv = process.env): JsonProvider {
-  const temperature = Number(env.AI_TEMPERATURE ?? 0.7);
-  const maxTokens = Number(env.AI_MAX_TOKENS ?? 4096);
+  const temperature = boundedNumber(env.AI_TEMPERATURE, 0.7, 0, 2);
+  const maxTokens = Math.round(boundedNumber(env.AI_MAX_TOKENS, 4096, 1, 32_000));
   const geminiKey = trimEnv(env.GEMINI_API_KEY);
   const openAiKey = trimEnv(env.OPENAI_API_KEY);
   const nvidiaKey = trimEnv(env.NVIDIA_API_KEY);
