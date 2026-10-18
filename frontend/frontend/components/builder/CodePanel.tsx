@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -107,7 +106,6 @@ function getLanguageLabel(file?: GeneratedFile): string {
   if (file.language) return file.language;
 
   const name = getFileName(file.path).toLowerCase();
-
   const extension =
     name === ".env"
       ? "env"
@@ -128,7 +126,6 @@ async function copyText(value: string): Promise<void> {
 
   textarea.value = value;
   textarea.readOnly = true;
-  textarea.setAttribute("aria-hidden", "true");
 
   Object.assign(textarea.style, {
     position: "fixed",
@@ -177,7 +174,9 @@ function highlightMatch(
 
     if (index > cursor) {
       parts.push(
-        <span key={key++}>{line.slice(cursor, index)}</span>
+        <span key={key++}>
+          {line.slice(cursor, index)}
+        </span>
       );
     }
 
@@ -204,18 +203,18 @@ export function CodePanel({
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [codeSearch, setCodeSearch] = useState("");
-  const [selectedMatchIndex, setSelectedMatchIndex] = useState(0);
+  const [selectedMatchIndex, setSelectedMatchIndex] =
+    useState(0);
   const [showSearch, setShowSearch] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showAllIssues, setShowAllIssues] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  const expandedDialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const copyTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const files = website?.files ?? [];
 
@@ -227,6 +226,7 @@ export function CodePanel({
   );
 
   const codeContent = activeFile?.content ?? "";
+
   const codeLines = useMemo(
     () => codeContent.split("\n"),
     [codeContent]
@@ -288,7 +288,7 @@ export function CodePanel({
     return () => clearCopyTimer();
   }, [clearCopyTimer]);
 
-  // Keep the selected file valid when generated files change.
+  // Keep the selected file valid when the project changes.
   useEffect(() => {
     if (!files.length) return;
 
@@ -301,7 +301,7 @@ export function CodePanel({
     }
   }, [files, selectedFile, onSelectFile]);
 
-  // Reset file-specific state when switching files.
+  // Reset file-specific state on file changes.
   useEffect(() => {
     setCodeSearch("");
     setSelectedMatchIndex(0);
@@ -319,12 +319,10 @@ export function CodePanel({
   }, [codeSearch]);
 
   useEffect(() => {
-    if (selectedMatchIndex >= filteredCode.length) {
-      setSelectedMatchIndex(
-        Math.max(filteredCode.length - 1, 0)
-      );
-    }
-  }, [filteredCode.length, selectedMatchIndex]);
+    setSelectedMatchIndex((current) =>
+      Math.min(current, Math.max(filteredCode.length - 1, 0))
+    );
+  }, [filteredCode.length]);
 
   const handleCopy = useCallback(async () => {
     if (!activeFile) return;
@@ -393,14 +391,10 @@ export function CodePanel({
   useEffect(() => {
     if (!showSearch) return;
 
-    const frame = requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-    });
-
-    return () => cancelAnimationFrame(frame);
+    searchInputRef.current?.focus();
   }, [showSearch]);
 
-  // Keyboard shortcuts.
+  // Keyboard shortcuts: Ctrl/Cmd+F, Ctrl/Cmd+Shift+C, Escape.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
@@ -420,7 +414,6 @@ export function CodePanel({
         } else if (showSearch) {
           closeSearch();
         }
-
         return;
       }
 
@@ -474,7 +467,7 @@ export function CodePanel({
     moveMatch,
   ]);
 
-  // Fullscreen editor: restore focus and page scrolling on close.
+  // Lock background scrolling and restore focus in fullscreen.
   useEffect(() => {
     if (!expanded) return;
 
@@ -485,14 +478,10 @@ export function CodePanel({
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    const frame = requestAnimationFrame(() => {
-      expandedDialogRef.current?.focus();
-    });
+    dialogRef.current?.focus();
 
     return () => {
       document.body.style.overflow = previousOverflow;
-      cancelAnimationFrame(frame);
       previousFocusRef.current?.focus();
     };
   }, [expanded]);
@@ -870,8 +859,7 @@ export function CodePanel({
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex shrink-0 items-center gap-1 font-mono text-[9px] text-white/40">
                   <Hash className="h-2.5 w-2.5" />
-                  {codeLines.length}{" "}
-                  {codeLines.length === 1 ? "line" : "lines"}
+                  {codeLines.length} {codeLines.length === 1 ? "line" : "lines"}
                 </span>
 
                 <span className="hidden truncate font-mono text-[9px] text-white/30 sm:inline">
@@ -888,7 +876,7 @@ export function CodePanel({
         </div>
       </div>
 
-      {/* Expanded editor */}
+      {/* Fullscreen editor */}
       {expanded && activeFile && (
         <div
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
@@ -899,7 +887,7 @@ export function CodePanel({
           }}
         >
           <div
-            ref={expandedDialogRef}
+            ref={dialogRef}
             className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl outline-none"
             role="dialog"
             aria-modal="true"
@@ -981,7 +969,7 @@ export function CodePanel({
   );
 }
 
-/* Toolbar button */
+/* Reusable toolbar button */
 
 function ToolbarButton({
   children,
@@ -1120,8 +1108,7 @@ function SearchResults({
           <Search className="h-3 w-3 shrink-0" />
 
           <span>
-            {results.length}{" "}
-            {results.length === 1 ? "match" : "matches"}
+            {results.length} {results.length === 1 ? "match" : "matches"}
           </span>
         </div>
 
@@ -1156,9 +1143,7 @@ function SearchResults({
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-teal/20 bg-teal/10 px-3 py-2 text-[10px] text-teal-100/90">
           <Hash className="h-3 w-3 shrink-0" />
 
-          <span>
-            Current match: line {activeMatch.number}
-          </span>
+          <span>Current match: line {activeMatch.number}</span>
         </div>
       )}
 
