@@ -60,7 +60,10 @@ function Spinner({ size = "md" }: { size?: Size }) {
   return (
     <Loader2
       aria-hidden="true"
-      className={`${spinnerSizes[size]} shrink-0 animate-spin motion-reduce:animate-none`}
+      className={[
+        spinnerSizes[size],
+        "shrink-0 animate-spin motion-reduce:animate-none",
+      ].join(" ")}
     />
   );
 }
@@ -70,7 +73,7 @@ function getClassName(
   size: Size,
   fullWidth: boolean,
   className?: string,
-) {
+): string {
   return [
     base,
     sizes[size],
@@ -101,11 +104,11 @@ export function Button({
   loadingText = "Loading...",
   fullWidth = false,
   children,
-  disabled,
+  disabled = false,
   "aria-label": ariaLabel,
   ...props
 }: ButtonProps) {
-  const isDisabled = Boolean(disabled || loading);
+  const isDisabled = disabled || loading;
 
   return (
     <button
@@ -124,7 +127,7 @@ export function Button({
       {loading ? (
         <>
           <Spinner size={size} />
-          <span>{loadingText}</span>
+          <span aria-live="polite">{loadingText}</span>
         </>
       ) : (
         children
