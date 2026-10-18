@@ -220,10 +220,7 @@ export function PromptInput({
             </div>
           </div>
 
-          <label
-            htmlFor={promptId}
-            className="sr-only"
-          >
+          <label htmlFor={promptId} className="sr-only">
             Describe the website you want to generate
           </label>
 
@@ -278,7 +275,7 @@ export function PromptInput({
             aria-label="Prompt character limit usage"
             aria-valuemin={0}
             aria-valuemax={MAX_CHARACTERS}
-            aria-valuenow={characterCount}
+            aria-valuenow={Math.min(characterCount, MAX_CHARACTERS)}
           >
             <div
               className={`h-full transition-all duration-200 ${
@@ -288,9 +285,7 @@ export function PromptInput({
                     ? "bg-amber-500"
                     : "bg-accent"
               }`}
-              style={{
-                width: `${progressPercentage}%`,
-              }}
+              style={{ width: `${progressPercentage}%` }}
             />
           </div>
         </div>
