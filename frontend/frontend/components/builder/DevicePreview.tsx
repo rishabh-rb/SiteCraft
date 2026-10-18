@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useCallback, useMemo } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import {
   Check,
   Monitor,
@@ -14,7 +14,7 @@ export type Device = "desktop" | "tablet" | "mobile";
 
 interface DevicePreviewProps {
   device: Device;
-  setDevice: (device: Device) => void;
+  setDevice: Dispatch<SetStateAction<Device>>;
   className?: string;
   showDimensions?: boolean;
   showHeader?: boolean;
@@ -68,24 +68,21 @@ export function DevicePreview({
   const activeDevice = DEVICE_CONFIG[device];
   const ActiveIcon = activeDevice.icon;
 
-  const handleDeviceChange = useCallback(
-    (mode: Device) => {
-      if (mode !== device) {
-        setDevice(mode);
-      }
-    },
-    [device, setDevice],
-  );
-
-  const activeDescription = useMemo(
-    () =>
-      `${activeDevice.label} preview selected, ${activeDevice.width} by ${activeDevice.height} pixels`,
-    [activeDevice],
-  );
+  const activeDescription =
+    `${activeDevice.label} preview selected, ` +
+    `${activeDevice.width} by ${activeDevice.height} pixels`;
 
   return (
     <section
-      className={`inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-white/95 p-1.5 shadow-sm backdrop-blur-xl transition-shadow duration-300 hover:shadow-md ${className}`}
+      className={[
+        "inline-flex max-w-full flex-wrap items-center gap-2",
+        "rounded-2xl border border-line bg-white/95 p-1.5",
+        "shadow-sm backdrop-blur-xl transition-shadow duration-300",
+        "hover:shadow-md motion-reduce:transition-none",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="Website preview settings"
     >
       {/* Preview heading */}
@@ -132,15 +129,21 @@ export function DevicePreview({
             <button
               key={mode}
               type="button"
-              onClick={() => handleDeviceChange(mode)}
+              onClick={() => setDevice(mode)}
               aria-pressed={isActive}
               aria-label={`${config.label}: ${config.dimensions} pixels`}
               title={`${config.description} (${config.dimensions})`}
-              className={`group relative inline-flex h-9 shrink-0 items-center justify-center gap-1.5 overflow-hidden rounded-lg px-2 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/50 focus-visible:ring-offset-1 motion-reduce:transition-none sm:gap-2 sm:px-3 ${
+              className={[
+                "group relative inline-flex h-9 shrink-0 items-center",
+                "justify-center gap-1.5 overflow-hidden rounded-lg px-2",
+                "transition-colors duration-200",
+                "focus-visible:outline-none focus-visible:ring-2",
+                "focus-visible:ring-teal/50 focus-visible:ring-offset-1",
+                "motion-reduce:transition-none sm:gap-2 sm:px-3",
                 isActive
                   ? "bg-ink text-white shadow-sm"
-                  : "text-ink/50 hover:bg-white hover:text-ink/80 hover:shadow-sm"
-              }`}
+                  : "text-ink/50 hover:bg-white hover:text-ink/80 hover:shadow-sm",
+              ].join(" ")}
             >
               {isActive && (
                 <span
@@ -150,19 +153,21 @@ export function DevicePreview({
               )}
 
               <Icon
-                className={`relative h-4 w-4 shrink-0 ${
+                className={[
+                  "relative h-4 w-4 shrink-0",
                   isActive
                     ? "text-teal"
-                    : "transition-transform duration-200 group-hover:scale-110 motion-reduce:transition-none"
-                }`}
+                    : "transition-transform duration-200 group-hover:scale-110 motion-reduce:transition-none",
+                ].join(" ")}
                 strokeWidth={isActive ? 2.2 : 1.8}
                 aria-hidden="true"
               />
 
               <span
-                className={`relative text-[10px] font-bold sm:text-[11px] ${
-                  isActive ? "text-white" : "text-current"
-                }`}
+                className={[
+                  "relative text-[10px] font-bold sm:text-[11px]",
+                  isActive ? "text-white" : "text-current",
+                ].join(" ")}
               >
                 {config.label}
               </span>
