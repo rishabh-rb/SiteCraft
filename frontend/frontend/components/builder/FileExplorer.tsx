@@ -196,8 +196,8 @@ function getFolderCount(files: GeneratedFile[]): number {
       .split("/")
       .filter(Boolean);
 
-    for (let i = 1; i < parts.length; i++) {
-      folders.add(parts.slice(0, i).join("/"));
+    for (let index = 1; index < parts.length; index++) {
+      folders.add(parts.slice(0, index).join("/"));
     }
   }
 
@@ -210,9 +210,8 @@ export function FileExplorer({
   onSelectFile,
 }: FileExplorerProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [collapsedFolders, setCollapsedFolders] =
+    useState<Set<string>>(() => new Set());
 
   const searchId = useId();
   const trimmedQuery = searchQuery.trim();
@@ -249,7 +248,7 @@ export function FileExplorer({
     const query = trimmedQuery.toLowerCase();
 
     return normalizedFiles.filter((file) =>
-      file.searchText.includes(query),
+      file.searchText.includes(query)
     );
   }, [normalizedFiles, hasSearch, trimmedQuery]);
 
@@ -257,13 +256,11 @@ export function FileExplorer({
     const groups = new Map<string, NormalizedFile[]>();
 
     for (const file of filteredFiles) {
-      const folder = file.folderPath;
-
-      if (!groups.has(folder)) {
-        groups.set(folder, []);
+      if (!groups.has(file.folderPath)) {
+        groups.set(file.folderPath, []);
       }
 
-      groups.get(folder)!.push(file);
+      groups.get(file.folderPath)!.push(file);
     }
 
     return Array.from(groups.entries())
@@ -282,22 +279,27 @@ export function FileExplorer({
 
   const folderCount = useMemo(
     () => getFolderCount(files),
-    [files],
+    [files]
   );
 
   const selectedExists = useMemo(
     () => files.some((file) => file.path === selectedFile),
-    [files, selectedFile],
+    [files, selectedFile]
   );
 
   const allFolders = useMemo(
-    () => folderGroups.map((group) => group.path).filter(Boolean),
-    [folderGroups],
+    () =>
+      folderGroups
+        .map((group) => group.path)
+        .filter(Boolean),
+    [folderGroups]
   );
 
   const allCollapsed =
     allFolders.length > 0 &&
-    allFolders.every((folder) => collapsedFolders.has(folder));
+    allFolders.every((folder) =>
+      collapsedFolders.has(folder)
+    );
 
   const toggleFolder = useCallback((folderPath: string) => {
     setCollapsedFolders((previous) => {
@@ -317,7 +319,9 @@ export function FileExplorer({
     setCollapsedFolders((previous) => {
       const everyFolderCollapsed =
         allFolders.length > 0 &&
-        allFolders.every((folder) => previous.has(folder));
+        allFolders.every((folder) =>
+          previous.has(folder)
+        );
 
       return everyFolderCollapsed
         ? new Set<string>()
@@ -332,7 +336,7 @@ export function FileExplorer({
   const isFolderCollapsed = useCallback(
     (folderPath: string) =>
       !hasSearch && collapsedFolders.has(folderPath),
-    [hasSearch, collapsedFolders],
+    [hasSearch, collapsedFolders]
   );
 
   if (files.length === 0) {
@@ -361,8 +365,8 @@ export function FileExplorer({
           </h2>
 
           <p className="mt-2 max-w-[220px] text-[10px] leading-5 text-ink/45">
-            Generate a website to explore its source code, folders,
-            configuration files, and assets.
+            Generate a website to explore its source code,
+            folders, configuration files, and assets.
           </p>
         </div>
       </aside>
@@ -374,7 +378,7 @@ export function FileExplorer({
       aria-label="Project file explorer"
       className="flex h-full min-h-0 w-full flex-col overflow-hidden border-r border-line bg-paper"
     >
-      {/* Header */}
+      {/* Explorer header */}
       <header className="shrink-0 border-b border-line">
         <div className="px-3.5 pb-3 pt-3.5">
           <div className="flex items-center justify-between gap-2">
@@ -398,8 +402,11 @@ export function FileExplorer({
                 </div>
 
                 <p className="mt-1 text-[9px] font-medium text-ink/45">
-                  {files.length} {files.length === 1 ? "file" : "files"}
-                  <span className="mx-1.5 text-ink/20">•</span>
+                  {files.length}{" "}
+                  {files.length === 1 ? "file" : "files"}
+                  <span className="mx-1.5 text-ink/20">
+                    •
+                  </span>
                   {folderCount}{" "}
                   {folderCount === 1 ? "folder" : "folders"}
                 </p>
@@ -460,7 +467,9 @@ export function FileExplorer({
               id={searchId}
               type="search"
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) =>
+                setSearchQuery(event.target.value)
+              }
               placeholder="Search files, folders, extensions..."
               autoComplete="off"
               spellCheck={false}
@@ -475,7 +484,10 @@ export function FileExplorer({
                 title="Clear search"
                 className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-lg text-ink/40 transition-colors hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/30"
               >
-                <X className="h-3 w-3" aria-hidden="true" />
+                <X
+                  className="h-3 w-3"
+                  aria-hidden="true"
+                />
               </button>
             )}
           </div>
@@ -506,7 +518,8 @@ export function FileExplorer({
             {folderGroups.map((group) => {
               const isRoot = group.path === "";
               const isCollapsed =
-                !isRoot && isFolderCollapsed(group.path);
+                !isRoot &&
+                isFolderCollapsed(group.path);
 
               return (
                 <section
@@ -517,10 +530,14 @@ export function FileExplorer({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!isRoot) toggleFolder(group.path);
+                      if (!isRoot) {
+                        toggleFolder(group.path);
+                      }
                     }}
                     disabled={isRoot}
-                    aria-expanded={isRoot ? undefined : !isCollapsed}
+                    aria-expanded={
+                      isRoot ? undefined : !isCollapsed
+                    }
                     className={`mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
                       isRoot
                         ? "cursor-default"
@@ -571,19 +588,30 @@ export function FileExplorer({
                   {!isCollapsed && (
                     <div className="space-y-0.5">
                       {group.files.map((file) => {
-                        const isSelected = selectedFile === file.path;
-                        const CurrentFileIcon = getFileIcon(file.path);
-                        const iconColor = getFileIconColor(file.path);
+                        const isSelected =
+                          selectedFile === file.path;
+
+                        const CurrentFileIcon =
+                          getFileIcon(file.path);
+
+                        const iconColor =
+                          getFileIconColor(file.path);
 
                         return (
                           <button
                             key={`${file.path}-${file.originalIndex}`}
                             type="button"
-                            onClick={() => onSelectFile(file.path)}
+                            onClick={() =>
+                              onSelectFile(file.path)
+                            }
                             title={file.path}
-                            aria-current={isSelected ? "page" : undefined}
+                            aria-current={
+                              isSelected ? "page" : undefined
+                            }
                             aria-label={`Open ${file.path}${
-                              isSelected ? ", currently selected" : ""
+                              isSelected
+                                ? ", currently selected"
+                                : ""
                             }`}
                             className={`group relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2.5 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-teal/30 ${
                               isSelected
@@ -634,7 +662,8 @@ export function FileExplorer({
                                       : "text-ink/40"
                                   }`}
                                 >
-                                  {file.folderPath || "Project root"}
+                                  {file.folderPath ||
+                                    "Project root"}
                                 </span>
                               )}
                             </span>
@@ -714,7 +743,9 @@ export function FileExplorer({
 
             <span
               className={`truncate text-[8px] font-medium ${
-                selectedExists ? "text-ink/50" : "text-ink/35"
+                selectedExists
+                  ? "text-ink/50"
+                  : "text-ink/35"
               }`}
               title={
                 selectedExists
