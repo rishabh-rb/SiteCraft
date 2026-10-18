@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -97,17 +98,17 @@ export function PreviewPanel({
 
   const dialogId = useId();
   const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
+  const fullscreenDialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshStartedRef = useRef(0);
   const generationRef = useRef(0);
   const isMountedRef = useRef(false);
   const blobUrlsRef = useRef<Set<string>>(new Set());
-
   const blobUrlTimersRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
@@ -165,7 +166,7 @@ export function PreviewPanel({
       }
 
       setPreviewState((current) =>
-        current === "loading" ? "error" : current
+        current === "loading" ? "error" : current,
       );
 
       setRefreshing(false);
@@ -223,7 +224,7 @@ export function PreviewPanel({
 
     const remaining = Math.max(
       0,
-      REFRESH_MIN_DURATION - elapsed
+      REFRESH_MIN_DURATION - elapsed,
     );
 
     clearRefreshTimer();
@@ -278,6 +279,11 @@ export function PreviewPanel({
   const openFullscreen = useCallback(() => {
     if (!hasWebsite) return;
 
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
     setFullscreen(true);
   }, [hasWebsite]);
 
@@ -286,15 +292,73 @@ export function PreviewPanel({
   }, []);
 
   useEffect(() => {
-    if (!fullscreen) return;
+    if (!fullscreen) {
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+      return;
+    }
 
     const previousOverflow = document.body.style.overflow;
-
     document.body.style.overflow = "hidden";
+
+    const getFocusableElements = () => {
+      const dialog = fullscreenDialogRef.current;
+
+      if (!dialog) return [];
+
+      return Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          [
+            "a[href]",
+            "button:not([disabled])",
+            "input:not([disabled])",
+            "select:not([disabled])",
+            "textarea:not([disabled])",
+            '[tabindex]:not([tabindex="-1"])',
+          ].join(","),
+        ),
+      ).filter(
+        (element) =>
+          !element.hasAttribute("hidden") &&
+          element.getAttribute("aria-hidden") !== "true",
+      );
+    };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         closeFullscreen();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusable = getFocusableElements();
+
+      if (focusable.length === 0) {
+        event.preventDefault();
+        fullscreenDialogRef.current?.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey) {
+        if (
+          active === first ||
+          !fullscreenDialogRef.current?.contains(active)
+        ) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (
+        active === last ||
+        !fullscreenDialogRef.current?.contains(active)
+      ) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
@@ -306,9 +370,7 @@ export function PreviewPanel({
 
     return () => {
       clearTimeout(focusTimer);
-
       document.body.style.overflow = previousOverflow;
-
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [fullscreen, closeFullscreen]);
@@ -336,7 +398,6 @@ export function PreviewPanel({
       });
 
       blobUrl = URL.createObjectURL(blob);
-
       blobUrlsRef.current.add(blobUrl);
 
       previewWindow.location.replace(blobUrl);
@@ -527,10 +588,12 @@ export function PreviewPanel({
       {/* Fullscreen preview */}
       {fullscreen && hasWebsite && (
         <div
+          ref={fullscreenDialogRef}
           className="fixed inset-0 z-[100] flex flex-col bg-[#0b0d0f]/95 p-2 backdrop-blur-md sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby={`${dialogId}-title`}
+          tabIndex={-1}
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               closeFullscreen();
