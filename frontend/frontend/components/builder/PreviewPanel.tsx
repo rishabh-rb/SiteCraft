@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -8,6 +7,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from "react";
 
 import {
@@ -43,6 +43,7 @@ interface PreviewActionProps {
   active?: boolean;
   dark?: boolean;
   className?: string;
+  buttonRef?: Ref<HTMLButtonElement>;
 }
 
 interface PreviewStatusProps {
@@ -96,19 +97,23 @@ export function PreviewPanel({
 
   const dialogId = useId();
   const fullscreenCloseRef = useRef<HTMLButtonElement>(null);
+
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
+
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshStartedRef = useRef(0);
   const generationRef = useRef(0);
   const isMountedRef = useRef(false);
   const blobUrlsRef = useRef<Set<string>>(new Set());
+
   const blobUrlTimersRef = useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
 
   const html = website?.html ?? "";
+
   const siteName =
     website?.plan?.siteName?.trim() || "Website Preview";
 
@@ -215,6 +220,7 @@ export function PreviewPanel({
 
   const finishRefreshing = useCallback(() => {
     const elapsed = Date.now() - refreshStartedRef.current;
+
     const remaining = Math.max(
       0,
       REFRESH_MIN_DURATION - elapsed
@@ -271,6 +277,7 @@ export function PreviewPanel({
 
   const openFullscreen = useCallback(() => {
     if (!hasWebsite) return;
+
     setFullscreen(true);
   }, [hasWebsite]);
 
@@ -282,6 +289,7 @@ export function PreviewPanel({
     if (!fullscreen) return;
 
     const previousOverflow = document.body.style.overflow;
+
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -298,7 +306,9 @@ export function PreviewPanel({
 
     return () => {
       clearTimeout(focusTimer);
+
       document.body.style.overflow = previousOverflow;
+
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [fullscreen, closeFullscreen]);
@@ -326,6 +336,7 @@ export function PreviewPanel({
       });
 
       blobUrl = URL.createObjectURL(blob);
+
       blobUrlsRef.current.add(blobUrl);
 
       previewWindow.location.replace(blobUrl);
@@ -334,6 +345,7 @@ export function PreviewPanel({
 
       const timer = setTimeout(() => {
         URL.revokeObjectURL(urlToRevoke);
+
         blobUrlsRef.current.delete(urlToRevoke);
         blobUrlTimersRef.current.delete(urlToRevoke);
       }, BLOB_URL_LIFETIME);
@@ -573,6 +585,7 @@ export function PreviewPanel({
                 label="Close fullscreen"
                 onClick={closeFullscreen}
                 dark
+                buttonRef={fullscreenCloseRef}
                 className="focus-visible:ring-white/40"
               >
                 <X className="h-4 w-4" />
@@ -706,9 +719,11 @@ function PreviewAction({
   active = false,
   dark = false,
   className = "",
+  buttonRef,
 }: PreviewActionProps) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       disabled={disabled}
