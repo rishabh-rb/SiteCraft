@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -62,7 +63,9 @@ function getFolderPath(path: string): string {
   const normalized = normalizePath(path);
   const lastSlash = normalized.lastIndexOf("/");
 
-  return lastSlash > 0 ? normalized.slice(0, lastSlash) : "";
+  return lastSlash > 0
+    ? normalized.slice(0, lastSlash)
+    : "";
 }
 
 function getFileExtension(path: string): string {
@@ -248,7 +251,7 @@ export function FileExplorer({
     const query = trimmedQuery.toLowerCase();
 
     return normalizedFiles.filter((file) =>
-      file.searchText.includes(query)
+      file.searchText.includes(query),
     );
   }, [normalizedFiles, hasSearch, trimmedQuery]);
 
@@ -266,7 +269,9 @@ export function FileExplorer({
     return Array.from(groups.entries())
       .map(([path, groupFiles]) => ({
         path,
-        name: path ? path.split("/").pop() || path : "Root",
+        name: path
+          ? path.split("/").pop() || path
+          : "Root",
         files: groupFiles,
       }))
       .sort((a, b) => {
@@ -279,12 +284,12 @@ export function FileExplorer({
 
   const folderCount = useMemo(
     () => getFolderCount(files),
-    [files]
+    [files],
   );
 
   const selectedExists = useMemo(
     () => files.some((file) => file.path === selectedFile),
-    [files, selectedFile]
+    [files, selectedFile],
   );
 
   const allFolders = useMemo(
@@ -292,13 +297,13 @@ export function FileExplorer({
       folderGroups
         .map((group) => group.path)
         .filter(Boolean),
-    [folderGroups]
+    [folderGroups],
   );
 
   const allCollapsed =
     allFolders.length > 0 &&
     allFolders.every((folder) =>
-      collapsedFolders.has(folder)
+      collapsedFolders.has(folder),
     );
 
   const toggleFolder = useCallback((folderPath: string) => {
@@ -320,7 +325,7 @@ export function FileExplorer({
       const everyFolderCollapsed =
         allFolders.length > 0 &&
         allFolders.every((folder) =>
-          previous.has(folder)
+          previous.has(folder),
         );
 
       return everyFolderCollapsed
@@ -336,7 +341,7 @@ export function FileExplorer({
   const isFolderCollapsed = useCallback(
     (folderPath: string) =>
       !hasSearch && collapsedFolders.has(folderPath),
-    [hasSearch, collapsedFolders]
+    [hasSearch, collapsedFolders],
   );
 
   if (files.length === 0) {
@@ -504,7 +509,9 @@ export function FileExplorer({
 
               <span className="text-[8px] font-bold tabular-nums text-teal">
                 {filteredFiles.length}{" "}
-                {filteredFiles.length === 1 ? "match" : "matches"}
+                {filteredFiles.length === 1
+                  ? "match"
+                  : "matches"}
               </span>
             </div>
           )}
@@ -518,8 +525,7 @@ export function FileExplorer({
             {folderGroups.map((group) => {
               const isRoot = group.path === "";
               const isCollapsed =
-                !isRoot &&
-                isFolderCollapsed(group.path);
+                !isRoot && isFolderCollapsed(group.path);
 
               return (
                 <section
